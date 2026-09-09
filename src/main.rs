@@ -17,8 +17,20 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     let mut stdout = std::io::stdout();
 
     let config = if cli.config.exists() {
-        let content = std::fs::read_to_string(&cli.config).unwrap_or_default();
-        toml::from_str::<AppConfig>(&content).unwrap_or_default()
+        let content = match std::fs::read_to_string(&cli.config) {
+            Ok(c) => c,
+            Err(e) => {
+                eprintln!("Error reading config {:?}: {}", cli.config, e);
+                std::process::exit(1);
+            }
+        };
+        match toml::from_str::<AppConfig>(&content) {
+            Ok(c) => c,
+            Err(e) => {
+                eprintln!("Configuration error in {:?}: {}", cli.config, e);
+                std::process::exit(1);
+            }
+        }
     } else {
         AppConfig::default()
     };

@@ -1,4 +1,4 @@
-use sanalu::config::{AppConfig, parse_duration_str};
+use sanalu::config::{parse_duration_str, AppConfig};
 use std::time::Duration;
 
 #[test]
@@ -42,6 +42,22 @@ fn test_parse_from_toml_string() {
     assert_eq!(cfg.cloudflare.api_token, "test_token");
     assert_eq!(cfg.cloudflare.zone_id, "test_zone");
     assert_eq!(cfg.cloudflare.sync_batch_seconds, 8);
+}
+
+#[test]
+fn test_cloudflare_lenient_boolean_and_aliases() {
+    let toml_str = r#"
+        [Cloudflare]
+        enabled = "true"
+        CF_AUTH_TOKEN = "my_token"
+        zone = "my_zone"
+        rule = "my_rule"
+    "#;
+    let cfg: AppConfig = toml_str.parse().unwrap();
+    assert!(cfg.cloudflare.enabled);
+    assert_eq!(cfg.cloudflare.api_token, "my_token");
+    assert_eq!(cfg.cloudflare.zone_id, "my_zone");
+    assert_eq!(cfg.cloudflare.rule_id.as_deref(), Some("my_rule"));
 }
 
 #[test]

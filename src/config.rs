@@ -174,13 +174,37 @@ impl Default for AsnRulesConfig {
     }
 }
 
+fn deserialize_bool_lenient<'de, D>(deserializer: D) -> Result<bool, D::Error>
+where
+    D: serde::Deserializer<'de>,
+{
+    struct BoolOrStringVisitor;
+    impl<'de> serde::de::Visitor<'de> for BoolOrStringVisitor {
+        type Value = bool;
+        fn expecting(&self, formatter: &mut std::fmt::Formatter) -> std::fmt::Result {
+            formatter.write_str("a boolean or string")
+        }
+        fn visit_bool<E>(self, v: bool) -> Result<Self::Value, E> {
+            Ok(v)
+        }
+        fn visit_str<E: serde::de::Error>(self, v: &str) -> Result<Self::Value, E> {
+            match v.trim().to_lowercase().as_str() {
+                "true" | "yes" | "1" | "on" => Ok(true),
+                "false" | "no" | "0" | "off" => Ok(false),
+                _ => Err(E::custom(format!("invalid boolean: {v}"))),
+            }
+        }
+    }
+    deserializer.deserialize_any(BoolOrStringVisitor)
+}
+
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
 pub struct CloudflareConfig {
-    #[serde(default)]
+    #[serde(default, deserialize_with = "deserialize_bool_lenient")]
     pub enabled: bool,
-    #[serde(default)]
+    #[serde(default, alias = "token", alias = "CF_AUTH_TOKEN", alias = "cf_auth_token", alias = "cf_token")]
     pub api_token: String,
-    #[serde(default)]
+    #[serde(default, alias = "zone", alias = "zone-id")]
     pub zone_id: String,
     #[serde(default = "default_rule_name")]
     pub rule_name: String,
@@ -190,9 +214,9 @@ pub struct CloudflareConfig {
     pub max_rule_chars: usize,
     #[serde(default = "default_sync_batch_seconds")]
     pub sync_batch_seconds: u64,
-    #[serde(default)]
+    #[serde(default, alias = "ruleset", alias = "ruleset-id")]
     pub ruleset_id: Option<String>,
-    #[serde(default)]
+    #[serde(default, alias = "rule", alias = "rule-id")]
     pub rule_id: Option<String>,
 }
 
@@ -244,7 +268,7 @@ pub struct AppConfig {
     pub bots: BotsConfig,
     #[serde(default)]
     pub asn_rules: AsnRulesConfig,
-    #[serde(default)]
+    #[serde(default, alias = "Cloudflare")]
     pub cloudflare: CloudflareConfig,
 }
 
