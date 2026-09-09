@@ -1,0 +1,45 @@
+[general]
+db_path = "/var/lib/sanalu/sanalu.redb"
+ip_db_path = "/var/lib/sanalu/ip_asn_geo.bin"
+whitelist = ["127.0.0.1", "::1"]
+
+[nginx]
+enabled = true
+find_time = "10m"
+max_retry = 1
+ban_tiers = ["15m", "1h", "24h", "permanent"]
+probe_instant_ban = true
+allowed_endpoints = [
+    "^/api/.*",
+    "^/health$",
+    "^/webhooks/.*"
+]
+
+[ssh]
+enabled = true
+find_time = "10m"
+max_retry = 5
+ban_tiers = ["15m", "1h", "24h", "permanent"]
+
+[bots]
+blocked_categories = [
+    "ai_crawler",
+    "security_testing",
+    "bad_scraper",
+    "generic_tools"
+]
+
+[asn_rules]
+enabled = true
+restricted_asns = [15169, 16509, 14061, 31898, 13238, 13335]
+allowed_regions = ["ID", "MY", "SG", "US", "PH", "JP"]
+blocked_asns = [400529, 48090]
+
+[cloudflare]
+enabled = false
+api_token = ""
+zone_id = ""
+rule_name = "sanalu_auto_block"
+action = "block"
+max_rule_chars = 3950
+sync_batch_seconds = 5

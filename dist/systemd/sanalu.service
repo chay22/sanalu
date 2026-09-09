@@ -1,0 +1,31 @@
+[Unit]
+Description=Sanalu High-Performance Security Daemon
+Documentation=https://github.com/chay22/sanalu
+After=network.target local-fs.target systemd-journald.service
+Wants=network.target
+
+[Service]
+Type=simple
+ExecStart=/usr/bin/sanalu run
+Restart=always
+RestartSec=3s
+TimeoutStopSec=10s
+
+LimitNOFILE=1048576
+LimitNPROC=512
+LimitMEMLOCK=infinity
+TasksMax=infinity
+OOMScoreAdjust=-500
+
+StandardOutput=journal
+StandardError=journal
+
+User=root
+CapabilityBoundingSet=CAP_NET_ADMIN CAP_NET_RAW CAP_DAC_READ_SEARCH
+AmbientCapabilities=CAP_NET_ADMIN CAP_NET_RAW CAP_DAC_READ_SEARCH
+ProtectSystem=full
+ProtectHome=true
+ReadWritePaths=/var/lib/sanalu /etc/sanalu
+
+[Install]
+WantedBy=multi-user.target

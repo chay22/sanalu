@@ -1,0 +1,66 @@
+name: Release
+
+on:
+  push:
+    tags:
+      - "v*"
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+env:
+  CARGO_TERM_COLOR: always
+
+jobs:
+  build-release:
+    name: Build & Release (Linux x86_64, GLIBC 2.31+)
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Install Rust toolchain
+        uses: dtolnay/rust-toolchain@stable
+
+      - name: Install Zig
+        uses: mlugg/setup-zig@v1
+        with:
+          version: 0.13.0
+
+      - name: Install cargo-zigbuild & cargo-deb
+        run: |
+          cargo install cargo-zigbuild cargo-deb --locked
+
+      - name: Rust Cache
+        uses: Swatinem/rust-cache@v2
+
+      - name: Build release binary for GLIBC 2.31+
+        run: |
+          cargo zigbuild --release --target x86_64-unknown-linux-gnu.2.31 --locked
+          mkdir -p target/release
+          cp target/x86_64-unknown-linux-gnu/release/sanalu target/release/sanalu
+          strip target/release/sanalu
+
+      - name: Package tarball
+        run: |
+          tar -czvf sanalu-linux-x86_64.tar.gz -C target/release sanalu
+          sha256sum sanalu-linux-x86_64.tar.gz > sanalu-linux-x86_64.tar.gz.sha256
+
+      - name: Build Debian package
+        run: |
+          cargo deb --no-build
+          cp target/debian/*.deb .
+          sha256sum *.deb > debian_packages.sha256
+
+      - name: Create GitHub Release
+        uses: softprops/action-gh-release@v2
+        with:
+          files: |
+            sanalu-linux-x86_64.tar.gz
+            sanalu-linux-x86_64.tar.gz.sha256
+            *.deb
+            debian_packages.sha256
+          draft: false
+          prerelease: false
+          generate_release_notes: true
