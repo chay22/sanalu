@@ -202,7 +202,13 @@ where
 pub struct CloudflareConfig {
     #[serde(default, deserialize_with = "deserialize_bool_lenient")]
     pub enabled: bool,
-    #[serde(default, alias = "token", alias = "CF_AUTH_TOKEN", alias = "cf_auth_token", alias = "cf_token")]
+    #[serde(
+        default,
+        alias = "token",
+        alias = "CF_AUTH_TOKEN",
+        alias = "cf_auth_token",
+        alias = "cf_token"
+    )]
     pub api_token: String,
     #[serde(default, alias = "zone", alias = "zone-id")]
     pub zone_id: String,

@@ -23,8 +23,7 @@ pub async fn try_send_request(
     let mut stream = UnixStream::connect(socket_path)
         .await
         .map_err(SanaluError::Io)?;
-    let req_json =
-        serde_json::to_string(req).map_err(|e| SanaluError::Config(e.to_string()))?;
+    let req_json = serde_json::to_string(req).map_err(|e| SanaluError::Config(e.to_string()))?;
     stream
         .write_all(req_json.as_bytes())
         .await

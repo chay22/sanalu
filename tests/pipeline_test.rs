@@ -161,14 +161,16 @@ fn test_loopback_and_private_ips_automatically_allowed() {
     let private_192: IpAddr = "192.168.1.100".parse().unwrap();
     let cgnat: IpAddr = "100.64.0.1".parse().unwrap();
 
-    for ip in [loopback_v4, loopback_v6, private_10, private_172, private_192, cgnat] {
-        let action = pipeline.evaluate(
-            ip,
-            None,
-            "zgrab/0.x (compatible; Research)",
-            "GET",
-            "/.env",
-        );
+    for ip in [
+        loopback_v4,
+        loopback_v6,
+        private_10,
+        private_172,
+        private_192,
+        cgnat,
+    ] {
+        let action =
+            pipeline.evaluate(ip, None, "zgrab/0.x (compatible; Research)", "GET", "/.env");
         assert_eq!(action, PipelineAction::Allow);
     }
 }

@@ -1,4 +1,4 @@
-use sanalu::config::{parse_duration_str, AppConfig};
+use sanalu::config::{AppConfig, parse_duration_str};
 use std::time::Duration;
 
 #[test]

@@ -31,5 +31,11 @@ jobs:
       - name: Run Clippy
         run: cargo clippy --all-targets -- -D warnings
 
+      - name: Install Sentrux
+        run: curl -sSL https://raw.githubusercontent.com/sentrux/sentrux/main/install.sh | sudo bash
+
+      - name: Architecture Check
+        run: sentrux check .
+
       - name: Run Tests
         run: cargo test --verbose

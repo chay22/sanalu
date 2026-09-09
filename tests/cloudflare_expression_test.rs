@@ -1,4 +1,4 @@
-use sanalu::cloudflare::{parse_cf_error, CloudflareClient, CloudflareRuleBudget};
+use sanalu::cloudflare::{CloudflareClient, CloudflareRuleBudget, parse_cf_error};
 use sanalu::config::CloudflareConfig;
 use std::net::Ipv4Addr;
 
@@ -46,8 +46,7 @@ fn test_cloudflare_expression_empty_budget() {
 
 #[test]
 fn test_parse_cf_error_structured() {
-    let json_err =
-        r#"{"success":false,"errors":[{"code":9106,"message":"Authentication failed"}],"messages":[],"result":null}"#;
+    let json_err = r#"{"success":false,"errors":[{"code":9106,"message":"Authentication failed"}],"messages":[],"result":null}"#;
     let err = parse_cf_error(400, json_err);
     let msg = err.to_string();
     assert!(msg.contains("Cloudflare API error [9106]: Authentication failed"));
@@ -55,8 +54,7 @@ fn test_parse_cf_error_structured() {
 
 #[test]
 fn test_parse_cf_error_method_not_allowed() {
-    let json_err =
-        r#"{"success":false,"errors":[{"code":10405,"message":"Method not allowed for this authentication scheme"}]}"#;
+    let json_err = r#"{"success":false,"errors":[{"code":10405,"message":"Method not allowed for this authentication scheme"}]}"#;
     let err = parse_cf_error(405, json_err);
     let msg = err.to_string();
     assert!(msg.contains("Cloudflare API error [10405]: Method not allowed"));

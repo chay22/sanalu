@@ -2,7 +2,7 @@ use super::expression::CloudflareRuleBudget;
 use crate::config::CloudflareConfig;
 use crate::error::SanaluError;
 use crate::storage::RedbStore;
-use reqwest::header::{HeaderMap, HeaderValue, AUTHORIZATION, CONTENT_TYPE};
+use reqwest::header::{AUTHORIZATION, CONTENT_TYPE, HeaderMap, HeaderValue};
 use serde_json::json;
 use std::sync::Arc;
 use std::time::Duration;
@@ -119,11 +119,7 @@ impl CloudflareClient {
         Ok(())
     }
 
-    async fn create_rule(
-        &self,
-        ruleset_id: &str,
-        expression: &str,
-    ) -> Result<(), SanaluError> {
+    async fn create_rule(&self, ruleset_id: &str, expression: &str) -> Result<(), SanaluError> {
         let url = format!(
             "https://api.cloudflare.com/client/v4/zones/{}/rulesets/{}/rules",
             self.config.zone_id, ruleset_id
@@ -150,10 +146,7 @@ impl CloudflareClient {
         Ok(())
     }
 
-    async fn create_entrypoint_ruleset(
-        &self,
-        expression: &str,
-    ) -> Result<(), SanaluError> {
+    async fn create_entrypoint_ruleset(&self, expression: &str) -> Result<(), SanaluError> {
         let url = format!(
             "https://api.cloudflare.com/client/v4/zones/{}/rulesets",
             self.config.zone_id

@@ -119,6 +119,57 @@ async fn handle_client(
     Ok(())
 }
 
+fn to_response(res: Result<(), SanaluError>, buf: &[u8]) -> IpcResponse {
+    match res {
+        Ok(()) => IpcResponse::ok(String::from_utf8_lossy(buf).to_string()),
+        Err(e) => IpcResponse::err(e.to_string()),
+    }
+}
+
+async fn dispatch_ban(
+    buf: &mut Vec<u8>,
+    store: &RedbStore,
+    firewall: &NftablesBackend,
+    cf_tx: Option<&mpsc::Sender<()>>,
+    target: &str,
+    reason: Option<String>,
+) -> IpcResponse {
+    let res = handlers::execute_ban(buf, store, firewall, target, reason);
+    if res.is_ok() {
+        if let Some(tx) = cf_tx {
+            let _ = tx.send(()).await;
+        }
+    }
+    to_response(res, buf)
+}
+
+async fn dispatch_unban(
+    buf: &mut Vec<u8>,
+    store: &RedbStore,
+    firewall: &NftablesBackend,
+    cf_tx: Option<&mpsc::Sender<()>>,
+    target: &str,
+) -> IpcResponse {
+    let res = handlers::execute_unban(buf, store, firewall, target);
+    if res.is_ok() {
+        if let Some(tx) = cf_tx {
+            let _ = tx.send(()).await;
+        }
+    }
+    to_response(res, buf)
+}
+
+fn dispatch_policy(req: IpcRequest, buf: &mut Vec<u8>, store: &RedbStore) -> IpcResponse {
+    let res = match req {
+        IpcRequest::Whitelist { action } => handlers::execute_whitelist(buf, store, action),
+        IpcRequest::Category { action } => handlers::execute_category(buf, store, action),
+        IpcRequest::Asn { action } => handlers::execute_asn(buf, store, action),
+        IpcRequest::Region { action } => handlers::execute_region(buf, store, action),
+        _ => return IpcResponse::err("Invalid policy command".to_string()),
+    };
+    to_response(res, buf)
+}
+
 async fn dispatch_request(
     req: IpcRequest,
     store: &RedbStore,
@@ -128,69 +179,27 @@ async fn dispatch_request(
 ) -> IpcResponse {
     let mut buf = Vec::new();
     match req {
-        IpcRequest::Status => {
-            match handlers::format_status(&mut buf, store, &config.general.db_path) {
-                Ok(()) => IpcResponse::ok(String::from_utf8_lossy(&buf).to_string()),
-                Err(e) => IpcResponse::err(e.to_string()),
-            }
+        IpcRequest::Status => to_response(
+            handlers::format_status(&mut buf, store, &config.general.db_path),
+            &buf,
+        ),
+        IpcRequest::Check { target } => {
+            to_response(handlers::format_check(&mut buf, store, &target), &buf)
         }
-        IpcRequest::Check { target } => match handlers::format_check(&mut buf, store, &target) {
-            Ok(()) => IpcResponse::ok(String::from_utf8_lossy(&buf).to_string()),
-            Err(e) => IpcResponse::err(e.to_string()),
-        },
         IpcRequest::Ban { target, reason } => {
-            match handlers::execute_ban(&mut buf, store, firewall, &target, reason) {
-                Ok(()) => {
-                    if let Some(tx) = cf_tx {
-                        let _ = tx.send(()).await;
-                    }
-                    IpcResponse::ok(String::from_utf8_lossy(&buf).to_string())
-                }
-                Err(e) => IpcResponse::err(e.to_string()),
-            }
+            dispatch_ban(&mut buf, store, firewall, cf_tx, &target, reason).await
         }
         IpcRequest::Unban { target } => {
-            match handlers::execute_unban(&mut buf, store, firewall, &target) {
-                Ok(()) => {
-                    if let Some(tx) = cf_tx {
-                        let _ = tx.send(()).await;
-                    }
-                    IpcResponse::ok(String::from_utf8_lossy(&buf).to_string())
-                }
-                Err(e) => IpcResponse::err(e.to_string()),
-            }
+            dispatch_unban(&mut buf, store, firewall, cf_tx, &target).await
         }
-        IpcRequest::BanList { all, plain, filter } => {
-            match handlers::format_ban_list(&mut buf, store, all, plain, filter) {
-                Ok(()) => IpcResponse::ok(String::from_utf8_lossy(&buf).to_string()),
-                Err(e) => IpcResponse::err(e.to_string()),
-            }
-        }
-        IpcRequest::Whitelist { action } => {
-            match handlers::execute_whitelist(&mut buf, store, action) {
-                Ok(()) => IpcResponse::ok(String::from_utf8_lossy(&buf).to_string()),
-                Err(e) => IpcResponse::err(e.to_string()),
-            }
-        }
-        IpcRequest::Category { action } => {
-            match handlers::execute_category(&mut buf, store, action) {
-                Ok(()) => IpcResponse::ok(String::from_utf8_lossy(&buf).to_string()),
-                Err(e) => IpcResponse::err(e.to_string()),
-            }
-        }
-        IpcRequest::Asn { action } => match handlers::execute_asn(&mut buf, store, action) {
-            Ok(()) => IpcResponse::ok(String::from_utf8_lossy(&buf).to_string()),
-            Err(e) => IpcResponse::err(e.to_string()),
-        },
-        IpcRequest::Region { action } => match handlers::execute_region(&mut buf, store, action) {
-            Ok(()) => IpcResponse::ok(String::from_utf8_lossy(&buf).to_string()),
-            Err(e) => IpcResponse::err(e.to_string()),
-        },
-        IpcRequest::Cloudflare { action } => {
-            match handlers::execute_cloudflare(&mut buf, store, config, action).await {
-                Ok(()) => IpcResponse::ok(String::from_utf8_lossy(&buf).to_string()),
-                Err(e) => IpcResponse::err(e.to_string()),
-            }
-        }
+        IpcRequest::BanList { all, plain, filter } => to_response(
+            handlers::format_ban_list(&mut buf, store, all, plain, filter),
+            &buf,
+        ),
+        IpcRequest::Cloudflare { action } => to_response(
+            handlers::execute_cloudflare(&mut buf, store, config, action).await,
+            &buf,
+        ),
+        policy_req => dispatch_policy(policy_req, &mut buf, store),
     }
 }

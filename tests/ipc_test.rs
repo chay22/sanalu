@@ -86,9 +86,11 @@ async fn test_ipc_roundtrip_all_commands() {
     .await
     .unwrap();
     assert!(loopback_ban_resp.success);
-    assert!(loopback_ban_resp
-        .output
-        .contains("Cannot ban loopback or private network IP"));
+    assert!(
+        loopback_ban_resp
+            .output
+            .contains("Cannot ban loopback or private network IP")
+    );
 
     let unban_resp = try_send_request(
         &socket_path,
@@ -99,7 +101,11 @@ async fn test_ipc_roundtrip_all_commands() {
     .await
     .unwrap();
     assert!(unban_resp.success);
-    assert!(unban_resp.output.contains("Unbanned 203.0.113.50 successfully"));
+    assert!(
+        unban_resp
+            .output
+            .contains("Unbanned 203.0.113.50 successfully")
+    );
 
     let check_after_unban = try_send_request(
         &socket_path,
@@ -135,7 +141,11 @@ async fn test_ipc_roundtrip_all_commands() {
     .await
     .unwrap();
     assert!(cat_resp.success);
-    assert!(cat_resp.output.contains("Category 'ai_crawler' is now blocked"));
+    assert!(
+        cat_resp
+            .output
+            .contains("Category 'ai_crawler' is now blocked")
+    );
 
     let asn_resp = try_send_request(
         &socket_path,

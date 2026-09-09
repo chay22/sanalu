@@ -1,6 +1,5 @@
 use crate::cli::{
-    AsnCommands, CategoryCommands, CloudflareCommands, RegionCommands,
-    WhitelistCommands,
+    AsnCommands, CategoryCommands, CloudflareCommands, RegionCommands, WhitelistCommands,
 };
 use serde::{Deserialize, Serialize};
 

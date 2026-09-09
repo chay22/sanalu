@@ -390,9 +390,8 @@ pub async fn run_daemon(config_path: &Path, dry_run_cli: bool) -> Result<(), San
 
     #[cfg(unix)]
     {
-        let mut sigterm =
-            tokio::signal::unix::signal(tokio::signal::unix::SignalKind::terminate())
-                .map_err(SanaluError::Io)?;
+        let mut sigterm = tokio::signal::unix::signal(tokio::signal::unix::SignalKind::terminate())
+            .map_err(SanaluError::Io)?;
         tokio::select! {
             _ = tokio::signal::ctrl_c() => {},
             _ = sigterm.recv() => {},
