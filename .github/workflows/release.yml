@@ -35,9 +35,16 @@ jobs:
       - name: Rust Cache
         uses: Swatinem/rust-cache@v2
 
+      - name: Sync version from Git tag
+        run: |
+          if [[ "${GITHUB_REF_TYPE}" == "tag" ]]; then
+            VERSION="${GITHUB_REF_NAME#v}"
+            sed -i "0,/^version = .*/s//version = \"$VERSION\"/" Cargo.toml
+          fi
+
       - name: Build release binary for GLIBC 2.31+
         run: |
-          cargo zigbuild --release --target x86_64-unknown-linux-gnu.2.31 --locked
+          cargo zigbuild --release --target x86_64-unknown-linux-gnu.2.31
           mkdir -p target/release
           cp target/x86_64-unknown-linux-gnu/release/sanalu target/release/sanalu
           strip target/release/sanalu
