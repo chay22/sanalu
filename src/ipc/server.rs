@@ -1,5 +1,6 @@
 use super::handlers;
 use super::protocol::{IpcRequest, IpcResponse};
+use crate::cli::{AsnCommands, RegionCommands};
 use crate::config::AppConfig;
 use crate::error::SanaluError;
 use crate::firewall::NftablesBackend;
@@ -159,7 +160,20 @@ async fn dispatch_unban(
     to_response(res, buf)
 }
 
-fn dispatch_policy(req: IpcRequest, buf: &mut Vec<u8>, store: &RedbStore) -> IpcResponse {
+async fn dispatch_policy(
+    req: IpcRequest,
+    buf: &mut Vec<u8>,
+    store: &RedbStore,
+    cf_tx: Option<&mpsc::Sender<()>>,
+) -> IpcResponse {
+    let notify_cf = matches!(
+        req,
+        IpcRequest::Asn {
+            action: AsnCommands::Block { .. } | AsnCommands::Unblock { .. }
+        } | IpcRequest::Region {
+            action: RegionCommands::Allow { .. } | RegionCommands::Disallow { .. }
+        }
+    );
     let res = match req {
         IpcRequest::Whitelist { action } => handlers::execute_whitelist(buf, store, action),
         IpcRequest::Category { action } => handlers::execute_category(buf, store, action),
@@ -167,6 +181,11 @@ fn dispatch_policy(req: IpcRequest, buf: &mut Vec<u8>, store: &RedbStore) -> Ipc
         IpcRequest::Region { action } => handlers::execute_region(buf, store, action),
         _ => return IpcResponse::err("Invalid policy command".to_string()),
     };
+    if res.is_ok() && notify_cf {
+        if let Some(tx) = cf_tx {
+            let _ = tx.send(()).await;
+        }
+    }
     to_response(res, buf)
 }
 
@@ -180,7 +199,7 @@ async fn dispatch_request(
     let mut buf = Vec::new();
     match req {
         IpcRequest::Status => to_response(
-            handlers::format_status(&mut buf, store, &config.general.db_path),
+            handlers::format_status(&mut buf, store, &config.general.db_path, Some(config)),
             &buf,
         ),
         IpcRequest::Check { target } => {
@@ -200,6 +219,6 @@ async fn dispatch_request(
             handlers::execute_cloudflare(&mut buf, store, config, action).await,
             &buf,
         ),
-        policy_req => dispatch_policy(policy_req, &mut buf, store),
+        policy_req => dispatch_policy(policy_req, &mut buf, store, cf_tx).await,
     }
 }

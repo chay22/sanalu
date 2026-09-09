@@ -15,6 +15,7 @@ pub fn format_status<W: Write>(
     out: &mut W,
     store: &RedbStore,
     db_path: &Path,
+    config: Option<&AppConfig>,
 ) -> Result<(), SanaluError> {
     let _ = writeln!(out, "=== Sanalu Status ===");
     let _ = writeln!(out, "Database: {:?}", db_path);
@@ -40,7 +41,18 @@ pub fn format_status<W: Write>(
     let _ = writeln!(out, "\nBlocked Categories in DB: {:?}", cats);
 
     let asns = store.list_blocked_asns().unwrap_or_default();
-    let _ = writeln!(out, "Blocked ASNs in DB: {:?}", asns);
+    if let Some(cfg) = config {
+        let effective = crate::daemon::get_effective_blocked_asns(cfg, store);
+        let _ = writeln!(
+            out,
+            "Blocked ASNs: {} in config, {} dynamic in DB ({} effective)",
+            cfg.asn_rules.blocked_asns.len(),
+            asns.len(),
+            effective.len()
+        );
+    } else {
+        let _ = writeln!(out, "Blocked ASNs in DB: {:?}", asns);
+    }
 
     let regions = store.list_allowed_regions().unwrap_or_default();
     let _ = writeln!(out, "Allowed Regions in DB: {:?}", regions);
@@ -368,9 +380,10 @@ pub async fn execute_cloudflare<W: Write>(
                 return Ok(());
             }
             let _ = writeln!(out, "Triggering Cloudflare WAF synchronization...");
+            let effective_asns = crate::daemon::get_effective_blocked_asns(config, store);
             let budget = CloudflareRuleBudget::new(
                 config.cloudflare.max_rule_chars,
-                config.asn_rules.blocked_asns.clone(),
+                effective_asns,
                 config.asn_rules.restricted_asns.clone(),
                 config.asn_rules.allowed_regions.clone(),
             );

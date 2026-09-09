@@ -65,6 +65,43 @@ impl NftablesBackend {
         }
         Ok(())
     }
+
+    pub fn ban_targets_batch(&self, targets: &[String]) -> Result<(), SanaluError> {
+        if targets.is_empty() {
+            return Ok(());
+        }
+        let mut v4_elements = Vec::new();
+        let mut v6_elements = Vec::new();
+        for t in targets {
+            if t.contains(':') {
+                v6_elements.push(t.as_str());
+            } else {
+                v4_elements.push(t.as_str());
+            }
+        }
+        let mut ruleset = String::new();
+        if !v4_elements.is_empty() {
+            ruleset.push_str(&format!(
+                "add element {} {} {{ {} }}\n",
+                self.table,
+                self.set_v4,
+                v4_elements.join(", ")
+            ));
+        }
+        if !v6_elements.is_empty() {
+            ruleset.push_str(&format!(
+                "add element {} {} {{ {} }}\n",
+                self.table,
+                self.set_v6,
+                v6_elements.join(", ")
+            ));
+        }
+        self.execute_nft_ruleset(&ruleset)
+    }
+
+    pub fn sync_asn_cidrs(&self, cidrs: &[String]) -> Result<(), SanaluError> {
+        self.ban_targets_batch(cidrs)
+    }
 }
 
 impl FirewallBackend for NftablesBackend {

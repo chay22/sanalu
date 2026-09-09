@@ -107,6 +107,48 @@ impl IpLookupDb {
             IpAddr::V6(_) => None,
         }
     }
+    pub fn from_file(path: &std::path::Path) -> Result<Self, SanaluError> {
+        let file = std::fs::File::open(path)?;
+        let reader = std::io::BufReader::new(file);
+        Self::from_tsv_reader(reader)
+    }
+
+    pub fn cidrs_for_asn(&self, asn: u32) -> Vec<String> {
+        let mut cidrs = Vec::new();
+        for entry in &self.entries_v4 {
+            if entry.asn == asn {
+                cidrs.extend(range_to_cidrs(entry.start, entry.end));
+            }
+        }
+        cidrs
+    }
+}
+
+pub fn range_to_cidrs(start: u32, end: u32) -> Vec<String> {
+    if start > end {
+        return Vec::new();
+    }
+    let mut cidrs = Vec::new();
+    let mut cur = start as u64;
+    let end_u64 = end as u64;
+
+    while cur <= end_u64 {
+        let align_bits = if cur == 0 {
+            32
+        } else {
+            cur.trailing_zeros().min(32)
+        };
+        let max_size_from_align = 1u64 << align_bits;
+        let count = end_u64 - cur + 1;
+        let max_size_from_count = 1u64 << (63 - count.leading_zeros());
+        let block_size = max_size_from_align.min(max_size_from_count);
+        let prefix = 32 - block_size.trailing_zeros();
+
+        cidrs.push(format!("{}/{}", Ipv4Addr::from(cur as u32), prefix));
+        cur += block_size;
+    }
+
+    cidrs
 }
 
 impl Default for IpLookupDb {

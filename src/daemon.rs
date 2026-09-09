@@ -14,6 +14,7 @@ use std::net::IpAddr;
 use std::path::Path;
 use std::sync::Arc;
 use std::time::{Duration, SystemTime, UNIX_EPOCH};
+use tokio::sync::mpsc;
 
 use clap::CommandFactory;
 
@@ -84,6 +85,19 @@ pub fn bootstrap_files(config_path: &Path, db_path: &Path) -> Result<(), SanaluE
     Ok(())
 }
 
+pub fn get_effective_blocked_asns(config: &AppConfig, store: &RedbStore) -> Vec<u32> {
+    let mut asns = std::collections::BTreeSet::new();
+    for &asn in &config.asn_rules.blocked_asns {
+        asns.insert(asn);
+    }
+    if let Ok(db_asns) = store.list_blocked_asns() {
+        for asn in db_asns {
+            asns.insert(asn);
+        }
+    }
+    asns.into_iter().collect()
+}
+
 pub fn build_pipeline_from_config(
     config: &AppConfig,
     store: &RedbStore,
@@ -113,15 +127,9 @@ pub fn build_pipeline_from_config(
         }
     }
 
-    let mut blocked_asns = HashSet::new();
-    for &asn in &config.asn_rules.blocked_asns {
-        blocked_asns.insert(asn);
-    }
-    if let Ok(db_asns) = store.list_blocked_asns() {
-        for asn in db_asns {
-            blocked_asns.insert(asn);
-        }
-    }
+    let blocked_asns: HashSet<u32> = get_effective_blocked_asns(config, store)
+        .into_iter()
+        .collect();
 
     let mut restricted_asns = HashSet::new();
     for &asn in &config.asn_rules.restricted_asns {
@@ -258,6 +266,47 @@ pub fn replay_log_file(log_path: &Path, allowed_endpoints: &[String]) -> Result<
     Ok(threat_count)
 }
 
+fn sync_asn_fallback(firewall: &NftablesBackend, ip_db_path: &Path, effective_asns: &[u32]) {
+    if !ip_db_path.exists() {
+        return;
+    }
+    if let Ok(geo_db) = crate::geo::IpLookupDb::from_file(ip_db_path) {
+        let mut asn_cidrs = Vec::new();
+        for &asn in effective_asns {
+            asn_cidrs.extend(geo_db.cidrs_for_asn(asn));
+        }
+        if !asn_cidrs.is_empty() {
+            let _ = firewall.sync_asn_cidrs(&asn_cidrs);
+        }
+    }
+}
+
+async fn init_cloudflare_sync(
+    config: &AppConfig,
+    store: Arc<RedbStore>,
+    effective_asns: Vec<u32>,
+    dry_run: bool,
+) -> Result<Option<mpsc::Sender<()>>, SanaluError> {
+    if !config.cloudflare.enabled || config.cloudflare.api_token.is_empty() {
+        return Ok(None);
+    }
+    let cf_client = CloudflareClient::new(config.cloudflare.clone(), dry_run)?;
+    let budget = CloudflareRuleBudget::new(
+        config.cloudflare.max_rule_chars,
+        effective_asns,
+        config.asn_rules.restricted_asns.clone(),
+        config.asn_rules.allowed_regions.clone(),
+    );
+    let tx = CloudflareSyncWorker::spawn(
+        cf_client,
+        store,
+        budget,
+        config.cloudflare.sync_batch_seconds,
+    );
+    let _ = tx.send(()).await;
+    Ok(Some(tx))
+}
+
 pub async fn run_daemon(config_path: &Path, dry_run_cli: bool) -> Result<(), SanaluError> {
     let dry_run = dry_run_cli || !is_root();
     if !dry_run && !is_root() {
@@ -282,24 +331,10 @@ pub async fn run_daemon(config_path: &Path, dry_run_cli: bool) -> Result<(), San
     let firewall = Arc::new(NftablesBackend::auto_detect(dry_run));
     firewall.init_tables()?;
 
-    let cf_tx = if config.cloudflare.enabled && !config.cloudflare.api_token.is_empty() {
-        let cf_client = CloudflareClient::new(config.cloudflare.clone(), dry_run)?;
-        let budget = CloudflareRuleBudget::new(
-            config.cloudflare.max_rule_chars,
-            config.asn_rules.blocked_asns.clone(),
-            config.asn_rules.restricted_asns.clone(),
-            config.asn_rules.allowed_regions.clone(),
-        );
-        let tx = CloudflareSyncWorker::spawn(
-            cf_client,
-            store.clone(),
-            budget,
-            config.cloudflare.sync_batch_seconds,
-        );
-        Some(tx)
-    } else {
-        None
-    };
+    let effective_asns = get_effective_blocked_asns(&config, &store);
+    sync_asn_fallback(&firewall, &config.general.ip_db_path, &effective_asns);
+
+    let cf_tx = init_cloudflare_sync(&config, store.clone(), effective_asns, dry_run).await?;
 
     let pipeline = Arc::new(build_pipeline_from_config(&config, &store)?);
     let env_disc = discover_environment();

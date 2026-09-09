@@ -204,3 +204,20 @@ fn test_ipc_protocol_serde() {
     assert_eq!(decoded_resp.output, "all good");
     assert!(decoded_resp.error.is_none());
 }
+
+#[test]
+fn test_merged_asn_state() {
+    let temp_dir = tempfile::tempdir().unwrap();
+    let db_path = temp_dir.path().join("test.redb");
+    let store = sanalu::storage::RedbStore::open(&db_path).unwrap();
+    store.set_asn_blocked(99999, true).unwrap();
+
+    let mut cfg = sanalu::config::AppConfig::default();
+    cfg.asn_rules.blocked_asns = vec![11111, 22222];
+
+    let effective = sanalu::daemon::get_effective_blocked_asns(&cfg, &store);
+    assert_eq!(effective.len(), 3);
+    assert!(effective.contains(&11111));
+    assert!(effective.contains(&22222));
+    assert!(effective.contains(&99999));
+}

@@ -45,6 +45,42 @@ fn test_cloudflare_expression_empty_budget() {
 }
 
 #[test]
+fn test_cloudflare_expression_asns_anchored_during_massive_ip_attack() {
+    let budget = CloudflareRuleBudget::new(
+        4000,
+        vec![400529, 48090, 197170, 209630, 202412],
+        Vec::new(),
+        Vec::new(),
+    );
+
+    let mut massive_ips = Vec::new();
+    for i in 1..=500 {
+        let b3 = (i / 256) as u8;
+        let b4 = (i % 256) as u8;
+        massive_ips.push(std::net::Ipv4Addr::new(198, 51, b3, b4));
+    }
+
+    let (expr, included_ips) = budget.render_expression(&massive_ips);
+    assert!(expr.contains("ip.src.asnum in {400529 48090 197170 209630 202412}"));
+    assert!(included_ips.len() > 100);
+    assert!(included_ips.len() < 500);
+    assert!(expr.len() <= 4000);
+}
+
+#[test]
+fn test_cloudflare_expression_extreme_asns_budget_capped() {
+    let mut large_asns = Vec::new();
+    for i in 1000..3000 {
+        large_asns.push(i);
+    }
+    let budget = CloudflareRuleBudget::new(4000, large_asns, Vec::new(), Vec::new());
+    let (expr, _) = budget.render_expression(&[]);
+    assert!(expr.starts_with("(ip.src.asnum in {"));
+    assert!(expr.len() <= 4000);
+    assert!(!expr.is_empty());
+}
+
+#[test]
 fn test_parse_cf_error_structured() {
     let json_err = r#"{"success":false,"errors":[{"code":9106,"message":"Authentication failed"}],"messages":[],"result":null}"#;
     let err = parse_cf_error(400, json_err);

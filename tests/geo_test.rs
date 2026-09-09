@@ -21,3 +21,15 @@ fn test_parse_tsv_and_lookup() {
 
     assert!(db.lookup("192.168.1.1".parse().unwrap()).is_none());
 }
+
+#[test]
+fn test_extract_cidrs_for_asn() {
+    let tsv_data = "1.0.0.0\t1.0.0.255\t13335\tUS\tCLOUDFLARENET\n\
+                    8.8.8.0\t8.8.8.255\t15169\tUS\tGOOGLE\n\
+                    1.0.1.0\t1.0.1.255\t13335\tUS\tCLOUDFLARENET\n";
+    let db = sanalu::geo::IpLookupDb::from_tsv_reader(tsv_data.as_bytes()).unwrap();
+    let cidrs = db.cidrs_for_asn(13335);
+    assert_eq!(cidrs.len(), 2);
+    assert!(cidrs.contains(&"1.0.0.0/24".to_string()));
+    assert!(cidrs.contains(&"1.0.1.0/24".to_string()));
+}

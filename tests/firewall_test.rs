@@ -32,6 +32,11 @@ fn test_nftables_dry_run_operations() {
     assert!(backend.ban_ip(ip_v4, Some(3600)).is_ok());
     assert!(backend.ban_ip(ip_v6, None).is_ok());
     assert!(backend.ban_target("192.0.2.0/24", Some(3600)).is_ok());
+    assert!(
+        backend
+            .sync_asn_cidrs(&["1.0.0.0/24".to_string(), "8.8.8.0/24".to_string()])
+            .is_ok()
+    );
     assert!(backend.unban_target("192.0.2.0/24").is_ok());
     assert!(backend.unban_ip(ip_v4).is_ok());
     assert!(backend.list_banned().is_ok());

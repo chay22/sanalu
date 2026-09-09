@@ -45,7 +45,7 @@
   }
   ```
 
-- [ ] **Step 1: Write unit tests for ASN anchoring and IP rotation**
+- [x] **Step 1: Write unit tests for ASN anchoring and IP rotation**
 
 In `tests/cloudflare_expression_test.rs`:
 ```rust
@@ -85,12 +85,12 @@ fn test_cloudflare_expression_extreme_asns_budget_capped() {
 }
 ```
 
-- [ ] **Step 2: Run test to verify it fails**
+- [x] **Step 2: Run test to verify it fails**
 
 Run: `rtk cargo test --test cloudflare_expression_test`
 Expected: FAIL.
 
-- [ ] **Step 3: Implement smart character budgeting in `src/cloudflare/expression.rs`**
+- [x] **Step 3: Implement smart character budgeting in `src/cloudflare/expression.rs`**
 
 Refactor `render_expression` to:
 1. First, build the umbrella clauses:
@@ -100,7 +100,7 @@ Refactor `render_expression` to:
 3. Pack as many active banned IPv4 addresses into `ip.src in {...}` as fit within the remaining budget.
 4. Guarantee that the final expression length is strictly `<= max_chars`.
 
-- [ ] **Step 4: Run test to verify it passes**
+- [x] **Step 4: Run test to verify it passes**
 
 Run: `rtk cargo test --test cloudflare_expression_test`
 Expected: PASS with all tests green and expressions `<= max_chars`.
@@ -120,7 +120,7 @@ Expected: PASS with all tests green and expressions `<= max_chars`.
   pub fn get_effective_blocked_asns(config: &AppConfig, store: &RedbStore) -> Vec<u32>;
   ```
 
-- [ ] **Step 1: Write test for merged state evaluation in handlers**
+- [x] **Step 1: Write test for merged state evaluation in handlers**
 
 In `tests/ipc_test.rs`:
 ```rust
@@ -142,12 +142,12 @@ fn test_merged_asn_state() {
 }
 ```
 
-- [ ] **Step 2: Run test to verify it fails**
+- [x] **Step 2: Run test to verify it fails**
 
 Run: `rtk cargo test --test ipc_test`
 Expected: FAIL.
 
-- [ ] **Step 3: Implement merged state in `src/daemon.rs` and `src/ipc/handlers.rs`**
+- [x] **Step 3: Implement merged state in `src/daemon.rs` and `src/ipc/handlers.rs`**
 
 1. Create `pub fn get_effective_blocked_asns(config: &AppConfig, store: &RedbStore) -> Vec<u32>` in `src/daemon.rs`.
 2. In `handlers::execute_cloudflare(CloudflareCommands::Sync)`: Use `get_effective_blocked_asns(config, store)` instead of just `config.asn_rules.blocked_asns`.
@@ -155,7 +155,7 @@ Expected: FAIL.
 4. In `handlers::execute_asn`: After `store.set_asn_blocked()`, notify `cf_tx` if present so Cloudflare syncs immediately when an ASN is blocked/unblocked via CLI.
 5. In `handlers::format_status`: Report both configured TOML rules and dynamic database overrides.
 
-- [ ] **Step 4: Run test to verify it passes**
+- [x] **Step 4: Run test to verify it passes**
 
 Run: `rtk cargo test --test ipc_test`
 Expected: PASS.
@@ -182,7 +182,7 @@ Expected: PASS.
   }
   ```
 
-- [ ] **Step 1: Write test for extracting CIDRs by ASN in `IpLookupDb`**
+- [x] **Step 1: Write test for extracting CIDRs by ASN in `IpLookupDb`**
 
 In `tests/geo_test.rs`:
 ```rust
@@ -199,18 +199,18 @@ fn test_extract_cidrs_for_asn() {
 }
 ```
 
-- [ ] **Step 2: Run test to verify it fails**
+- [x] **Step 2: Run test to verify it fails**
 
 Run: `rtk cargo test --test geo_test`
 Expected: Compilation failure.
 
-- [ ] **Step 3: Implement `cidrs_for_asn` and `range_to_cidrs` helper**
+- [x] **Step 3: Implement `cidrs_for_asn` and `range_to_cidrs` helper**
 
 1. In `src/geo/lookup.rs`: Implement conversion from `(start, end)` range to standard CIDR string prefix representations (e.g. converting `1.0.0.0` to `1.0.0.255` into `1.0.0.0/24`).
 2. Add `cidrs_for_asn(&self, asn: u32) -> Vec<String>` to collect CIDRs matching the target ASN.
 3. In `src/daemon.rs`: On startup, collect CIDRs for all effective blocked ASNs from `IpLookupDb` and load them into `nftables` via atomic `nft -f -` ruleset.
 
-- [ ] **Step 4: Run test to verify it passes**
+- [x] **Step 4: Run test to verify it passes**
 
 Run: `rtk cargo test --test geo_test`
 Expected: PASS.
@@ -219,22 +219,22 @@ Expected: PASS.
 
 ### Task 4: Comprehensive Verification
 
-- [ ] **Step 1: Check formatting**
+- [x] **Step 1: Check formatting**
 Run: `rtk cargo fmt --all -- --check`
 Expected: Code 0 (clean).
 
-- [ ] **Step 2: Check clippy**
+- [x] **Step 2: Check clippy**
 Run: `rtk cargo clippy --all-targets -- -D warnings`
 Expected: Code 0 (0 warnings).
 
-- [ ] **Step 3: Run entire test suite**
+- [x] **Step 3: Run entire test suite**
 Run: `rtk cargo test`
 Expected: All tests pass.
 
-- [ ] **Step 4: Run Sentrux architecture check**
+- [x] **Step 4: Run Sentrux architecture check**
 Run: `sentrux check .`
 Expected: All rules pass, CC < 25.
 
-- [ ] **Step 5: Verify zero comments in `.rs` files**
+- [x] **Step 5: Verify zero comments in `.rs` files**
 Run: `zg query --rg "^\s*//" -g "*.rs"` and `zg query --rg "/\*" -g "*.rs"`
 Expected: No matches.

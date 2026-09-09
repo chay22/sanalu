@@ -150,7 +150,7 @@ async fn handle_status<W: Write>(
         }
         let store = RedbStore::open(db_path)?;
         let mut buf = Vec::new();
-        handlers::format_status(&mut buf, &store, db_path)?;
+        handlers::format_status(&mut buf, &store, db_path, None)?;
         Ok(String::from_utf8(buf)?)
     })
     .await?;
