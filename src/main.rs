@@ -1,6 +1,6 @@
 use clap::{CommandFactory, Parser};
 use sanalu::cli::{BanCommands, Cli, CloudflareCommands, Commands};
-use sanalu::config::AppConfig;
+use sanalu::config::{AppConfig, parse_app_config};
 use sanalu::daemon::{bootstrap_files, is_root, replay_log_file, run_daemon};
 use sanalu::discovery::discover_environment;
 use sanalu::firewall::NftablesBackend;
@@ -24,10 +24,10 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
                 std::process::exit(1);
             }
         };
-        match content.parse::<AppConfig>() {
+        match parse_app_config(&content, &cli.config) {
             Ok(c) => c,
             Err(e) => {
-                eprintln!("Configuration error in {:?}: {}", cli.config, e);
+                eprintln!("{e}");
                 std::process::exit(1);
             }
         }

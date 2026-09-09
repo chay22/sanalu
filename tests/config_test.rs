@@ -1,4 +1,5 @@
-use sanalu::config::{AppConfig, parse_duration_str};
+use sanalu::config::{AppConfig, parse_app_config, parse_duration_str};
+use std::path::Path;
 use std::time::Duration;
 
 #[test]
@@ -84,33 +85,39 @@ fn test_duration_parsing() {
 }
 
 #[test]
-fn test_unquoted_ip_array_parsing() {
+fn test_unquoted_ip_diagnostic_hint() {
     let toml_str = r#"
         [general]
-        whitelist = [46.250.231.252, 58.84.8.135, 35.209.42.176, 165.101.42.95, 27.124.75.23, 124.156.196.228, 119.8.113.185, 43.160.240.243, 10.0.0.0/8, 2001:db8::1]
-
-        [asn_rules]
-        restricted_asns = [13335, 15169]
+        whitelist = [46.250.231.252, 58.84.8.135]
     "#;
 
-    let cfg: AppConfig = toml_str
-        .parse()
-        .expect("Should parse unquoted IPs tolerant");
-    assert_eq!(cfg.general.whitelist.len(), 10);
-    assert_eq!(cfg.general.whitelist[0], "46.250.231.252");
-    assert_eq!(cfg.general.whitelist[8], "10.0.0.0/8");
-    assert_eq!(cfg.general.whitelist[9], "2001:db8::1");
-    assert_eq!(cfg.asn_rules.restricted_asns, vec![13335, 15169]);
+    let err = parse_app_config(toml_str, Path::new("/etc/sanalu/sanalu.toml"))
+        .unwrap_err()
+        .to_string();
+    assert!(err.contains("Configuration error in \"/etc/sanalu/sanalu.toml\""));
+    assert!(err.contains("Hint: IP addresses in TOML arrays must be enclosed in quotes"));
 }
 
 #[test]
-fn test_whitelist_single_string_scalar() {
+fn test_unquoted_ipv6_diagnostic_hint() {
     let toml_str = r#"
         [general]
-        whitelist = "1.2.3.4"
+        whitelist = [2001:db8::1, ::1]
     "#;
-    let cfg: AppConfig = toml_str
-        .parse()
-        .expect("Should parse single string whitelist");
-    assert_eq!(cfg.general.whitelist, vec!["1.2.3.4".to_string()]);
+
+    let err = parse_app_config(toml_str, Path::new("/etc/sanalu/sanalu.toml"))
+        .unwrap_err()
+        .to_string();
+    assert!(err.contains("Hint: IP addresses in TOML arrays must be enclosed in quotes"));
+}
+
+#[test]
+fn test_strict_valid_config_no_hint() {
+    let toml_str = r#"
+        [general]
+        whitelist = ["46.250.231.252", "2001:db8::1"]
+    "#;
+
+    let cfg = parse_app_config(toml_str, Path::new("/etc/sanalu/sanalu.toml")).unwrap();
+    assert_eq!(cfg.general.whitelist.len(), 2);
 }

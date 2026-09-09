@@ -1,5 +1,5 @@
 use crate::cloudflare::{CloudflareClient, CloudflareRuleBudget, CloudflareSyncWorker};
-use crate::config::AppConfig;
+use crate::config::{AppConfig, parse_app_config};
 use crate::discovery::discover_environment;
 use crate::error::SanaluError;
 use crate::firewall::{FirewallBackend, NftablesBackend};
@@ -271,9 +271,7 @@ pub async fn run_daemon(config_path: &Path, dry_run_cli: bool) -> Result<(), San
 
     let config = if config_path.exists() {
         let content = std::fs::read_to_string(config_path)?;
-        content.parse::<AppConfig>().map_err(|e| {
-            SanaluError::Config(format!("Configuration error in {:?}: {}", config_path, e))
-        })?
+        parse_app_config(&content, config_path)?
     } else {
         AppConfig::default()
     };
