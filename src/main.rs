@@ -24,7 +24,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
                 std::process::exit(1);
             }
         };
-        match toml::from_str::<AppConfig>(&content) {
+        match content.parse::<AppConfig>() {
             Ok(c) => c,
             Err(e) => {
                 eprintln!("Configuration error in {:?}: {}", cli.config, e);

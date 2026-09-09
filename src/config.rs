@@ -5,7 +5,10 @@ use std::time::Duration;
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
 pub struct GeneralConfig {
-    #[serde(default = "default_whitelist")]
+    #[serde(
+        default = "default_whitelist",
+        deserialize_with = "deserialize_string_or_vec"
+    )]
     pub whitelist: Vec<String>,
     #[serde(default = "default_db_path")]
     pub db_path: PathBuf,
@@ -198,6 +201,33 @@ where
     deserializer.deserialize_any(BoolOrStringVisitor)
 }
 
+fn deserialize_string_or_vec<'de, D>(deserializer: D) -> Result<Vec<String>, D::Error>
+where
+    D: serde::Deserializer<'de>,
+{
+    struct StringOrVecVisitor;
+    impl<'de> serde::de::Visitor<'de> for StringOrVecVisitor {
+        type Value = Vec<String>;
+        fn expecting(&self, formatter: &mut std::fmt::Formatter) -> std::fmt::Result {
+            formatter.write_str("a string or list of strings")
+        }
+        fn visit_str<E>(self, v: &str) -> Result<Self::Value, E> {
+            Ok(vec![v.to_string()])
+        }
+        fn visit_seq<S>(self, mut seq: S) -> Result<Self::Value, S::Error>
+        where
+            S: serde::de::SeqAccess<'de>,
+        {
+            let mut vec = Vec::new();
+            while let Some(elem) = seq.next_element()? {
+                vec.push(elem);
+            }
+            Ok(vec)
+        }
+    }
+    deserializer.deserialize_any(StringOrVecVisitor)
+}
+
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
 pub struct CloudflareConfig {
     #[serde(default, deserialize_with = "deserialize_bool_lenient")]
@@ -278,12 +308,139 @@ pub struct AppConfig {
     pub cloudflare: CloudflareConfig,
 }
 
+fn is_ip_or_cidr(token: &str) -> bool {
+    let trimmed = token.trim();
+    if trimmed.is_empty() {
+        return false;
+    }
+    if trimmed.parse::<std::net::IpAddr>().is_ok() {
+        return true;
+    }
+    if let Some((ip, prefix)) = trimmed.split_once('/') {
+        if ip.parse::<std::net::IpAddr>().is_ok() && prefix.parse::<u8>().is_ok() {
+            return true;
+        }
+    }
+    false
+}
+
+fn flush_token(token: &mut String, res: &mut String) {
+    if token.is_empty() {
+        return;
+    }
+    let trimmed = token.trim();
+    if is_ip_or_cidr(trimmed) {
+        let leading = token.len() - token.trim_start().len();
+        let trailing = token.len() - token.trim_end().len();
+        res.push_str(&token[..leading]);
+        res.push('"');
+        res.push_str(trimmed);
+        res.push('"');
+        if trailing > 0 {
+            res.push_str(&token[token.len() - trailing..]);
+        }
+    } else {
+        res.push_str(token);
+    }
+    token.clear();
+}
+
+pub fn sanitize_unquoted_ips(s: &str) -> String {
+    let mut in_array = 0;
+    let mut in_single_quote = false;
+    let mut in_double_quote = false;
+    let mut in_comment = false;
+    let mut escaped = false;
+    let mut result = String::with_capacity(s.len() + 32);
+    let mut current_token = String::new();
+
+    for ch in s.chars() {
+        if in_comment {
+            if ch == '\n' {
+                in_comment = false;
+            }
+            result.push(ch);
+            continue;
+        }
+        if in_single_quote {
+            if ch == '\'' {
+                in_single_quote = false;
+            }
+            result.push(ch);
+            continue;
+        }
+        if in_double_quote {
+            if escaped {
+                escaped = false;
+            } else if ch == '\\' {
+                escaped = true;
+            } else if ch == '"' {
+                in_double_quote = false;
+            }
+            result.push(ch);
+            continue;
+        }
+
+        match ch {
+            '#' => {
+                flush_token(&mut current_token, &mut result);
+                in_comment = true;
+                result.push(ch);
+            }
+            '\'' => {
+                flush_token(&mut current_token, &mut result);
+                in_single_quote = true;
+                result.push(ch);
+            }
+            '"' => {
+                flush_token(&mut current_token, &mut result);
+                in_double_quote = true;
+                result.push(ch);
+            }
+            '[' => {
+                flush_token(&mut current_token, &mut result);
+                in_array += 1;
+                result.push(ch);
+            }
+            ']' => {
+                flush_token(&mut current_token, &mut result);
+                if in_array > 0 {
+                    in_array -= 1;
+                }
+                result.push(ch);
+            }
+            ',' | '\n' if in_array > 0 => {
+                flush_token(&mut current_token, &mut result);
+                result.push(ch);
+            }
+            _ if in_array > 0 => {
+                current_token.push(ch);
+            }
+            _ => {
+                result.push(ch);
+            }
+        }
+    }
+    flush_token(&mut current_token, &mut result);
+    result
+}
+
 impl std::str::FromStr for AppConfig {
     type Err = SanaluError;
 
     fn from_str(s: &str) -> Result<Self, Self::Err> {
-        let config: Self = toml::from_str(s)?;
-        Ok(config)
+        match toml::from_str::<Self>(s) {
+            Ok(config) => Ok(config),
+            Err(orig_err) => {
+                let sanitized = sanitize_unquoted_ips(s);
+                if sanitized != s {
+                    if let Ok(config) = toml::from_str::<Self>(&sanitized) {
+                        return Ok(config);
+                    }
+                }
+                Err(orig_err.into())
+            }
+        }
     }
 }
 

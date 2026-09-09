@@ -271,7 +271,7 @@ pub async fn run_daemon(config_path: &Path, dry_run_cli: bool) -> Result<(), San
 
     let config = if config_path.exists() {
         let content = std::fs::read_to_string(config_path)?;
-        toml::from_str::<AppConfig>(&content).map_err(|e| {
+        content.parse::<AppConfig>().map_err(|e| {
             SanaluError::Config(format!("Configuration error in {:?}: {}", config_path, e))
         })?
     } else {

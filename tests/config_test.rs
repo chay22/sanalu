@@ -82,3 +82,35 @@ fn test_duration_parsing() {
     assert_eq!(parse_duration_str("PERMANENT").unwrap(), None);
     assert!(parse_duration_str("invalid").is_err());
 }
+
+#[test]
+fn test_unquoted_ip_array_parsing() {
+    let toml_str = r#"
+        [general]
+        whitelist = [46.250.231.252, 58.84.8.135, 35.209.42.176, 165.101.42.95, 27.124.75.23, 124.156.196.228, 119.8.113.185, 43.160.240.243, 10.0.0.0/8, 2001:db8::1]
+
+        [asn_rules]
+        restricted_asns = [13335, 15169]
+    "#;
+
+    let cfg: AppConfig = toml_str
+        .parse()
+        .expect("Should parse unquoted IPs tolerant");
+    assert_eq!(cfg.general.whitelist.len(), 10);
+    assert_eq!(cfg.general.whitelist[0], "46.250.231.252");
+    assert_eq!(cfg.general.whitelist[8], "10.0.0.0/8");
+    assert_eq!(cfg.general.whitelist[9], "2001:db8::1");
+    assert_eq!(cfg.asn_rules.restricted_asns, vec![13335, 15169]);
+}
+
+#[test]
+fn test_whitelist_single_string_scalar() {
+    let toml_str = r#"
+        [general]
+        whitelist = "1.2.3.4"
+    "#;
+    let cfg: AppConfig = toml_str
+        .parse()
+        .expect("Should parse single string whitelist");
+    assert_eq!(cfg.general.whitelist, vec!["1.2.3.4".to_string()]);
+}
