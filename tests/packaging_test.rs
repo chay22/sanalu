@@ -22,6 +22,12 @@ fn test_dist_config_template() {
     assert!(conf_path.exists());
 
     let content = fs::read_to_string(conf_path).unwrap();
+    assert!(!content.contains("db_path"));
+    assert!(!content.contains("ip_db_path"));
+    assert!(!content.contains("socket_path"));
+    assert!(!content.contains("ruleset_id"));
+    assert!(!content.contains("rule_id"));
+
     let parsed: AppConfig =
         toml::from_str(&content).expect("dist/sanalu.toml must be valid AppConfig");
     assert_eq!(parsed.nginx.find_time, "10m");
@@ -39,9 +45,37 @@ fn test_dist_config_template() {
     assert!(parsed.nginx.allowed_endpoints.is_empty());
     assert_eq!(parsed.cloudflare.sync_batch_seconds, 5);
     assert_eq!(
+        parsed.general.db_path,
+        Path::new("/var/lib/sanalu/sanalu.redb")
+    );
+    assert_eq!(
+        parsed.general.ip_db_path,
+        Path::new("/var/lib/sanalu/ip_asn_geo.bin")
+    );
+    assert_eq!(
         parsed.general.socket_path,
         Path::new("/run/sanalu/sanalu.sock")
     );
+    assert!(parsed.cloudflare.ruleset_id.is_none());
+    assert!(parsed.cloudflare.rule_id.is_none());
+}
+
+#[test]
+fn test_custom_override_paths_and_cloudflare_ids() {
+    let toml_str = r#"
+[general]
+db_path = "/custom/db.redb"
+socket_path = "/custom/custom.sock"
+
+[cloudflare]
+ruleset_id = "my_ruleset"
+rule_id = "my_rule"
+"#;
+    let parsed: AppConfig = toml::from_str(toml_str).unwrap();
+    assert_eq!(parsed.general.db_path, Path::new("/custom/db.redb"));
+    assert_eq!(parsed.general.socket_path, Path::new("/custom/custom.sock"));
+    assert_eq!(parsed.cloudflare.ruleset_id.as_deref(), Some("my_ruleset"));
+    assert_eq!(parsed.cloudflare.rule_id.as_deref(), Some("my_rule"));
 }
 
 #[test]

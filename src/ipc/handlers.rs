@@ -315,12 +315,18 @@ pub async fn execute_cloudflare<W: Write>(
             } else {
                 &config.cloudflare.zone_id
             };
+            let ruleset = config
+                .cloudflare
+                .ruleset_id
+                .as_deref()
+                .unwrap_or("Auto-discover");
             let rule = config
                 .cloudflare
                 .rule_id
                 .as_deref()
-                .unwrap_or("Not configured");
+                .unwrap_or("Auto-discover");
             let _ = writeln!(out, "Zone ID:           {}", zone);
+            let _ = writeln!(out, "Ruleset ID:        {}", ruleset);
             let _ = writeln!(out, "Rule ID:           {}", rule);
 
             let expr = store.get_cloudflare_state()?.unwrap_or_default();

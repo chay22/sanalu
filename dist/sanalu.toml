@@ -1,7 +1,4 @@
 [general]
-db_path = "/var/lib/sanalu/sanalu.redb"
-ip_db_path = "/var/lib/sanalu/ip_asn_geo.bin"
-socket_path = "/run/sanalu/sanalu.sock"
 whitelist = []
 
 [nginx]
