@@ -9,7 +9,7 @@ license = "MIT OR Apache-2.0"
 repository = "https://github.com/chay22/sanalu"
 
 [dependencies]
-tokio = { version = "1.43", features = ["rt-multi-thread", "macros", "time", "sync", "process", "io-util", "signal"] }
+tokio = { version = "1.43", features = ["rt-multi-thread", "macros", "time", "sync", "process", "io-util", "signal", "net"] }
 serde = { version = "1.0", features = ["derive"] }
 serde_json = "1.0"
 toml = "0.8"
@@ -44,6 +44,7 @@ assets = [
     ["target/release/sanalu", "usr/bin/sanalu", "755"],
     ["dist/systemd/sanalu.service", "lib/systemd/system/sanalu.service", "644"],
     ["dist/sanalu.toml", "etc/sanalu/sanalu.toml", "640"],
+    ["dist/completions/sanalu", "usr/share/bash-completion/completions/sanalu", "644"],
 ]
 conf-files = ["/etc/sanalu/sanalu.toml"]
 

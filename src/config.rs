@@ -11,6 +11,8 @@ pub struct GeneralConfig {
     pub db_path: PathBuf,
     #[serde(default = "default_ip_db_path")]
     pub ip_db_path: PathBuf,
+    #[serde(default = "default_socket_path")]
+    pub socket_path: PathBuf,
 }
 
 fn default_whitelist() -> Vec<String> {
@@ -25,12 +27,17 @@ fn default_ip_db_path() -> PathBuf {
     PathBuf::from("/var/lib/sanalu/ip_asn_geo.bin")
 }
 
+fn default_socket_path() -> PathBuf {
+    PathBuf::from("/run/sanalu/sanalu.sock")
+}
+
 impl Default for GeneralConfig {
     fn default() -> Self {
         Self {
             whitelist: default_whitelist(),
             db_path: default_db_path(),
             ip_db_path: default_ip_db_path(),
+            socket_path: default_socket_path(),
         }
     }
 }

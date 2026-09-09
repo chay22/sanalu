@@ -8,6 +8,7 @@ pub mod error;
 pub mod firewall;
 pub mod geo;
 pub mod intelligence;
+pub mod ipc;
 pub mod parser;
 pub mod storage;
 pub mod uninstall;

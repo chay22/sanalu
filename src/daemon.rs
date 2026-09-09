@@ -53,13 +53,18 @@ pub fn bootstrap_files(config_path: &Path, db_path: &Path) -> Result<(), SanaluE
         std::fs::write(config_path, template)?;
     }
 
-    let bash_completion_dir = Path::new("/etc/bash_completion.d");
-    if bash_completion_dir.exists() && is_root() {
-        let bash_completion_file = bash_completion_dir.join("sanalu");
-        if !bash_completion_file.exists() {
-            let mut buf = Vec::new();
-            generate_completions(clap_complete::Shell::Bash, &mut buf);
-            let _ = std::fs::write(&bash_completion_file, buf);
+    let completion_dirs = [
+        Path::new("/usr/share/bash-completion/completions"),
+        Path::new("/etc/bash_completion.d"),
+    ];
+    if is_root() {
+        let mut buf = Vec::new();
+        generate_completions(clap_complete::Shell::Bash, &mut buf);
+        for dir in completion_dirs {
+            if dir.exists() {
+                let file = dir.join("sanalu");
+                let _ = std::fs::write(&file, &buf);
+            }
         }
     }
 
@@ -305,6 +310,18 @@ pub async fn run_daemon(config_path: &Path, dry_run_cli: bool) -> Result<(), San
     println!("Discovered {} Nginx logs", env_disc.nginx_logs.len());
     println!("SSH Source: {:?}", env_disc.ssh_source);
 
+    let socket_path = config.general.socket_path.clone();
+    let ipc_server = crate::ipc::IpcServer::new(
+        socket_path.clone(),
+        store.clone(),
+        firewall.clone(),
+        cf_tx.clone(),
+        Arc::new(config.clone()),
+    );
+    tokio::spawn(async move {
+        let _ = ipc_server.run().await;
+    });
+
     for log in &env_disc.nginx_logs {
         let path = log.path.clone();
         let pipe = pipeline.clone();
@@ -369,7 +386,24 @@ pub async fn run_daemon(config_path: &Path, dry_run_cli: bool) -> Result<(), San
         });
     }
 
-    tokio::signal::ctrl_c().await.map_err(SanaluError::Io)?;
+    #[cfg(unix)]
+    {
+        let mut sigterm =
+            tokio::signal::unix::signal(tokio::signal::unix::SignalKind::terminate())
+                .map_err(SanaluError::Io)?;
+        tokio::select! {
+            _ = tokio::signal::ctrl_c() => {},
+            _ = sigterm.recv() => {},
+        }
+    }
+    #[cfg(not(unix))]
+    {
+        tokio::signal::ctrl_c().await.map_err(SanaluError::Io)?;
+    }
+
+    if socket_path.exists() {
+        let _ = std::fs::remove_file(&socket_path);
+    }
     println!("Shutting down sanalu...");
     Ok(())
 }

@@ -1,4 +1,4 @@
-use sanalu::config::{AppConfig, parse_duration_str};
+use sanalu::config::{parse_duration_str, AppConfig};
 use std::fs;
 use std::path::Path;
 
@@ -13,6 +13,7 @@ fn test_systemd_service_file_and_limits() {
     assert!(content.contains("TasksMax=infinity"));
     assert!(content.contains("ExecStart=/usr/bin/sanalu run"));
     assert!(content.contains("StandardOutput=journal"));
+    assert!(content.contains("RuntimeDirectory=sanalu"));
 }
 
 #[test]
@@ -37,6 +38,10 @@ fn test_dist_config_template() {
     assert!(parsed.general.whitelist.is_empty());
     assert!(parsed.nginx.allowed_endpoints.is_empty());
     assert_eq!(parsed.cloudflare.sync_batch_seconds, 5);
+    assert_eq!(
+        parsed.general.socket_path,
+        Path::new("/run/sanalu/sanalu.sock")
+    );
 }
 
 #[test]
@@ -45,4 +50,17 @@ fn test_cargo_deb_metadata_exists() {
     let content = fs::read_to_string(cargo_path).unwrap();
     assert!(content.contains("[package.metadata.deb]"));
     assert!(content.contains("assets = ["));
+    assert!(content.contains("dist/completions/sanalu"));
+    assert!(content.contains("usr/share/bash-completion/completions/sanalu"));
+}
+
+#[test]
+fn test_dist_completions_file() {
+    let comp_path = Path::new("dist/completions/sanalu");
+    assert!(comp_path.exists());
+    let content = fs::read_to_string(comp_path).unwrap();
+    assert!(content.contains("_sanalu"));
+    assert!(content.contains("sanalu,status"));
+    assert!(content.contains("sanalu,ban"));
+    assert!(content.contains("sanalu,check"));
 }
