@@ -14,13 +14,7 @@ pub struct GeneralConfig {
 }
 
 fn default_whitelist() -> Vec<String> {
-    vec![
-        "127.0.0.1".into(),
-        "::1".into(),
-        "10.0.0.0/8".into(),
-        "172.16.0.0/12".into(),
-        "192.168.0.0/16".into(),
-    ]
+    Vec::new()
 }
 
 fn default_db_path() -> PathBuf {
@@ -70,13 +64,7 @@ fn default_nginx_ban_tiers() -> Vec<String> {
 }
 
 fn default_allowed_endpoints() -> Vec<String> {
-    vec![
-        "^/api/.*".into(),
-        "^/health$".into(),
-        "^/metrics$".into(),
-        "^/webhooks/.*".into(),
-        "^/ws/.*".into(),
-    ]
+    Vec::new()
 }
 
 impl Default for NginxConfig {
@@ -134,9 +122,8 @@ pub struct BotsConfig {
 
 fn default_blocked_categories() -> Vec<String> {
     vec![
-        "scanners".into(),
-        "ai".into(),
-        "aggressive_seo".into(),
+        "security_testing".into(),
+        "bad_scraper".into(),
         "generic_tools".into(),
     ]
 }
@@ -162,18 +149,11 @@ pub struct AsnRulesConfig {
 }
 
 fn default_restricted_asns() -> Vec<u32> {
-    vec![15169, 16509, 14061, 31898, 13238, 13335]
+    Vec::new()
 }
 
 fn default_allowed_regions() -> Vec<String> {
-    vec![
-        "ID".into(),
-        "MY".into(),
-        "SG".into(),
-        "US".into(),
-        "PH".into(),
-        "JP".into(),
-    ]
+    Vec::new()
 }
 
 impl Default for AsnRulesConfig {

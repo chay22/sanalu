@@ -33,7 +33,9 @@ fn test_dist_config_template() {
     );
     assert_eq!(parsed.nginx.ban_tiers.len(), 4);
     assert_eq!(parsed.ssh.max_retry, 5);
-    assert_eq!(parsed.asn_rules.allowed_regions.len(), 6);
+    assert!(parsed.asn_rules.allowed_regions.is_empty());
+    assert!(parsed.general.whitelist.is_empty());
+    assert!(parsed.nginx.allowed_endpoints.is_empty());
     assert_eq!(parsed.cloudflare.sync_batch_seconds, 5);
 }
 

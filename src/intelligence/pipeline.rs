@@ -83,7 +83,7 @@ impl ThreatPipeline {
         _method: &str,
         uri: &str,
     ) -> PipelineAction {
-        if self.whitelisted_ips.contains(&ip) {
+        if crate::is_loopback_or_private(ip) || self.whitelisted_ips.contains(&ip) {
             return PipelineAction::Allow;
         }
         if self.banned_ips.contains(&ip) {

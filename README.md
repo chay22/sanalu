@@ -249,7 +249,9 @@ Displays build metadata and environment target:
 [general]
 db_path = "/var/lib/sanalu/sanalu.redb"
 ip_db_path = "/var/lib/sanalu/ip_asn_geo.bin"
-whitelist = ["127.0.0.1", "::1", "10.0.0.0/8"]
+# Loopback (127.0.0.0/8, ::1) and RFC 1918 private subnets are whitelisted in code automatically.
+# Add any additional public IPs or custom CIDR blocks here:
+whitelist = []
 
 [nginx]
 enabled = true
@@ -257,11 +259,7 @@ find_time = "10m"
 max_retry = 1
 ban_tiers = ["15m", "1h", "24h", "permanent"]
 probe_instant_ban = true
-allowed_endpoints = [
-    "^/api/.*",
-    "^/health$",
-    "^/webhooks/.*"
-]
+allowed_endpoints = []
 
 [ssh]
 enabled = true
@@ -272,17 +270,16 @@ scanner_instant_ban = true
 
 [bots]
 blocked_categories = [
-    "scanners",
-    "ai_crawler",
+    "security_testing",
     "bad_scraper",
     "generic_tools"
 ]
 
 [asn_rules]
 enabled = true
-restricted_asns = [15169, 16509, 14061, 31898, 13238, 13335]
-allowed_regions = ["ID", "MY", "SG", "US", "PH", "JP"]
-blocked_asns = [400529, 48090]
+restricted_asns = []
+allowed_regions = []
+blocked_asns = []
 
 [cloudflare]
 enabled = false

@@ -150,3 +150,25 @@ fn test_stage1_asn_policy() {
     );
     assert_eq!(action_allowed, PipelineAction::Allow);
 }
+
+#[test]
+fn test_loopback_and_private_ips_automatically_allowed() {
+    let pipeline = ThreatPipeline::new_test_instance();
+    let loopback_v4: IpAddr = "127.0.0.1".parse().unwrap();
+    let loopback_v6: IpAddr = "::1".parse().unwrap();
+    let private_10: IpAddr = "10.0.1.50".parse().unwrap();
+    let private_172: IpAddr = "172.16.5.10".parse().unwrap();
+    let private_192: IpAddr = "192.168.1.100".parse().unwrap();
+    let cgnat: IpAddr = "100.64.0.1".parse().unwrap();
+
+    for ip in [loopback_v4, loopback_v6, private_10, private_172, private_192, cgnat] {
+        let action = pipeline.evaluate(
+            ip,
+            None,
+            "zgrab/0.x (compatible; Research)",
+            "GET",
+            "/.env",
+        );
+        assert_eq!(action, PipelineAction::Allow);
+    }
+}

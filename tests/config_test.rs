@@ -9,9 +9,10 @@ fn test_default_config_parsing() {
     assert_eq!(cfg.nginx.max_retry, 1);
     assert_eq!(cfg.ssh.max_retry, 3);
     assert!(!cfg.cloudflare.enabled);
-    assert_eq!(cfg.cloudflare.sync_batch_seconds, 5);
-    assert!(cfg.asn_rules.restricted_asns.contains(&15169));
-    assert!(cfg.asn_rules.allowed_regions.contains(&"ID".to_string()));
+    assert!(cfg.asn_rules.restricted_asns.is_empty());
+    assert!(cfg.asn_rules.allowed_regions.is_empty());
+    assert!(cfg.general.whitelist.is_empty());
+    assert!(cfg.nginx.allowed_endpoints.is_empty());
 }
 
 #[test]

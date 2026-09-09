@@ -190,6 +190,12 @@ fn handle_ban<W: Write>(
     target: &str,
     reason: Option<String>,
 ) -> Result<(), Box<dyn std::error::Error>> {
+    if let Ok(ip) = target.parse::<IpAddr>() {
+        if sanalu::is_loopback_or_private(ip) {
+            let _ = writeln!(out, "Cannot ban loopback or private network IP: {}", target);
+            return Ok(());
+        }
+    }
     let reason_str = reason.unwrap_or_else(|| "manual_cli_ban".into());
     let store = RedbStore::open(db_path)?;
     let now_secs = SystemTime::now()
@@ -340,8 +346,15 @@ fn handle_check<W: Write>(
     }
 
     if let Some(ip) = maybe_ip {
-        let whitelisted = store.is_whitelisted(ip)?;
-        let wl_str = if whitelisted { "YES" } else { "NO" };
+        let is_internal = sanalu::is_loopback_or_private(ip);
+        let whitelisted = is_internal || store.is_whitelisted(ip)?;
+        let wl_str = if is_internal {
+            "YES [Loopback / Private Network]"
+        } else if whitelisted {
+            "YES"
+        } else {
+            "NO"
+        };
         let _ = writeln!(out, "Whitelisted:       {}", wl_str);
 
         if let Some(offense) = store.get_offense(ip)? {

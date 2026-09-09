@@ -14,7 +14,7 @@ fn test_bot_category_conversions() {
     assert_eq!(BotCategory::from_str_name("unknown_cat"), None);
 
     assert!(BotCategory::SecurityTesting.is_blocked_by_default());
-    assert!(BotCategory::AiCrawler.is_blocked_by_default());
+    assert!(!BotCategory::AiCrawler.is_blocked_by_default());
     assert!(BotCategory::BadScraper.is_blocked_by_default());
     assert!(BotCategory::GenericTools.is_blocked_by_default());
     assert!(!BotCategory::Search.is_blocked_by_default());

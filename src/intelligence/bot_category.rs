@@ -49,7 +49,7 @@ impl BotCategory {
     pub fn is_blocked_by_default(&self) -> bool {
         matches!(
             self,
-            Self::AiCrawler | Self::SecurityTesting | Self::BadScraper | Self::GenericTools
+            Self::SecurityTesting | Self::BadScraper | Self::GenericTools
         )
     }
 }
