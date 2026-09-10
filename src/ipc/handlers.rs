@@ -11,6 +11,61 @@ use std::net::IpAddr;
 use std::path::Path;
 use std::time::{SystemTime, UNIX_EPOCH};
 
+pub fn format_datetime(unix_secs: u64) -> String {
+    const MONTHS: [&str; 12] = [
+        "Jan", "Feb", "Mar", "Apr", "May", "Jun", "Jul", "Aug", "Sept", "Oct", "Nov", "Dec",
+    ];
+    let seconds_in_day = 86400;
+    let days = (unix_secs / seconds_in_day) as i64;
+    let rem_secs = (unix_secs % seconds_in_day) as u32;
+
+    let hour = rem_secs / 3600;
+    let minute = (rem_secs % 3600) / 60;
+    let second = rem_secs % 60;
+
+    let z = days + 719468;
+    let era = if z >= 0 { z } else { z - 146096 } / 146097;
+    let doe = (z - era * 146097) as u32;
+    let yoe = (doe - doe / 1460 + doe / 36524 - doe / 146096) / 365;
+    let y = (yoe as i64) + era * 400;
+    let doy = doe - (365 * yoe + yoe / 4 - yoe / 100);
+    let mp = (5 * doy + 2) / 153;
+    let d = doy - (153 * mp + 2) / 5 + 1;
+    let m = if mp < 10 { mp + 3 } else { mp - 9 };
+    let year = if m <= 2 { y + 1 } else { y };
+
+    let month_str = MONTHS.get((m.saturating_sub(1)) as usize).unwrap_or(&"Jan");
+    format!(
+        "{d} {month_str} {year} {:02}:{:02}:{:02} UTC",
+        hour, minute, second
+    )
+}
+
+pub fn format_duration(seconds: u64) -> String {
+    if seconds == 0 {
+        return "0s".to_string();
+    }
+    let days = seconds / 86400;
+    let hours = (seconds % 86400) / 3600;
+    let minutes = (seconds % 3600) / 60;
+    let secs = seconds % 60;
+
+    let mut parts = Vec::new();
+    if days > 0 {
+        parts.push(format!("{}d", days));
+    }
+    if hours > 0 {
+        parts.push(format!("{}h", hours));
+    }
+    if minutes > 0 {
+        parts.push(format!("{}m", minutes));
+    }
+    if secs > 0 || parts.is_empty() {
+        parts.push(format!("{}s", secs));
+    }
+    parts.join(" ")
+}
+
 pub fn format_status<W: Write>(
     out: &mut W,
     store: &RedbStore,
@@ -22,9 +77,20 @@ pub fn format_status<W: Write>(
 
     let bans = store.list_active_bans().unwrap_or_default();
     let _ = writeln!(out, "\nActive Bans: {}", bans.len());
+    let now_secs = SystemTime::now()
+        .duration_since(UNIX_EPOCH)
+        .unwrap_or_default()
+        .as_secs();
     for b in bans.iter().take(15) {
         let exp = match b.expires_at_secs {
-            Some(s) => format!("expires in {}s", s),
+            Some(s) => {
+                let remaining = s.saturating_sub(now_secs);
+                format!(
+                    "expires {} ({} left)",
+                    format_datetime(s),
+                    format_duration(remaining)
+                )
+            }
             None => "permanent".to_string(),
         };
         let _ = writeln!(
@@ -37,25 +103,49 @@ pub fn format_status<W: Write>(
         let _ = writeln!(out, "  ... and {} more", bans.len() - 15);
     }
 
-    let cats = store.list_blocked_categories().unwrap_or_default();
-    let _ = writeln!(out, "\nBlocked Categories in DB: {:?}", cats);
+    let db_cats = store.list_blocked_categories().unwrap_or_default();
+    if let Some(cfg) = config {
+        let effective = crate::daemon::get_effective_blocked_categories(cfg, store);
+        let _ = writeln!(
+            out,
+            "\nBlocked Categories: {} in config, {} dynamic in DB ({} effective: {:?})",
+            cfg.bots.blocked_categories.len(),
+            db_cats.len(),
+            effective.len(),
+            effective
+        );
+    } else {
+        let _ = writeln!(out, "\nBlocked Categories in DB: {:?}", db_cats);
+    }
 
-    let asns = store.list_blocked_asns().unwrap_or_default();
+    let db_asns = store.list_blocked_asns().unwrap_or_default();
     if let Some(cfg) = config {
         let effective = crate::daemon::get_effective_blocked_asns(cfg, store);
         let _ = writeln!(
             out,
             "Blocked ASNs: {} in config, {} dynamic in DB ({} effective)",
             cfg.asn_rules.blocked_asns.len(),
-            asns.len(),
+            db_asns.len(),
             effective.len()
         );
     } else {
-        let _ = writeln!(out, "Blocked ASNs in DB: {:?}", asns);
+        let _ = writeln!(out, "Blocked ASNs in DB: {:?}", db_asns);
     }
 
-    let regions = store.list_allowed_regions().unwrap_or_default();
-    let _ = writeln!(out, "Allowed Regions in DB: {:?}", regions);
+    let db_regions = store.list_allowed_regions().unwrap_or_default();
+    if let Some(cfg) = config {
+        let effective = crate::daemon::get_effective_allowed_regions(cfg, store);
+        let _ = writeln!(
+            out,
+            "Allowed Regions: {} in config, {} dynamic in DB ({} effective: {:?})",
+            cfg.asn_rules.allowed_regions.len(),
+            db_regions.len(),
+            effective.len(),
+            effective
+        );
+    } else {
+        let _ = writeln!(out, "Allowed Regions in DB: {:?}", db_regions);
+    }
 
     let cf_state = store.get_cloudflare_state().unwrap_or_default();
     let _ = writeln!(out, "\nCloudflare Active Expression: {:?}", cf_state);
@@ -93,16 +183,23 @@ pub fn format_check<W: Write>(
             }
             let _ = writeln!(out, "Tier Level:        {}", record.tier_level);
             let exp = match record.expires_at_secs {
-                Some(s) => format!(
-                    "expires at unix {} ({}s duration)",
-                    s,
-                    s.saturating_sub(record.banned_at_secs)
-                ),
+                Some(s) => {
+                    let remaining = s.saturating_sub(record.banned_at_secs);
+                    format!(
+                        "{} (expires {})",
+                        format_duration(remaining),
+                        format_datetime(s)
+                    )
+                }
                 None => "permanent".to_string(),
             };
             let _ = writeln!(out, "Expiry:            {}", exp);
             let _ = writeln!(out, "Reason:            {}", record.reason);
-            let _ = writeln!(out, "Banned At:         unix {}", record.banned_at_secs);
+            let _ = writeln!(
+                out,
+                "Banned At:         {}",
+                format_datetime(record.banned_at_secs)
+            );
         }
         None => {
             let _ = writeln!(out, "Status:            CLEAN (Not banned)");
@@ -124,8 +221,16 @@ pub fn format_check<W: Write>(
         if let Some(offense) = store.get_offense(ip)? {
             let _ = writeln!(out, "\nOffense History:");
             let _ = writeln!(out, "  Recorded Count:  {}", offense.count);
-            let _ = writeln!(out, "  First Seen:      unix {}", offense.first_seen_secs);
-            let _ = writeln!(out, "  Last Seen:       unix {}", offense.last_seen_secs);
+            let _ = writeln!(
+                out,
+                "  First Seen:      {}",
+                format_datetime(offense.first_seen_secs)
+            );
+            let _ = writeln!(
+                out,
+                "  Last Seen:       {}",
+                format_datetime(offense.last_seen_secs)
+            );
         } else {
             let _ = writeln!(out, "Offenses in Window: 0");
         }
@@ -159,14 +264,25 @@ pub fn format_ban_list<W: Write>(
     let total = bans.len();
     let display_limit = if all { total } else { 50.min(total) };
     let _ = writeln!(out, "=== Active Bans ({total} total) ===");
+    let now_secs = SystemTime::now()
+        .duration_since(UNIX_EPOCH)
+        .unwrap_or_default()
+        .as_secs();
     for b in bans.iter().take(display_limit) {
         let exp = match b.expires_at_secs {
-            Some(s) => format!("expires in {}s", s),
+            Some(s) => {
+                let remaining = s.saturating_sub(now_secs);
+                format!(
+                    "expires {} ({} left)",
+                    format_datetime(s),
+                    format_duration(remaining)
+                )
+            }
             None => "permanent".to_string(),
         };
         let _ = writeln!(
             out,
-            "{:<32} tier {:<2} {:<20} reason: {}",
+            "{:<32} tier {:<2} {:<38} reason: {}",
             b.target, b.tier_level, exp, b.reason
         );
     }

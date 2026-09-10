@@ -120,3 +120,33 @@ http {
         SshLogSource::JournaldService(_) | SshLogSource::File(_)
     ));
 }
+
+#[test]
+fn test_os_release_parsing() {
+    let debian_os_release = r#"
+NAME="Debian GNU/Linux"
+VERSION_ID="12"
+VERSION="12 (bookworm)"
+VERSION_CODENAME=bookworm
+ID=debian
+HOME_URL="https://www.debian.org/"
+SUPPORT_URL="https://www.debian.org/support"
+BUG_REPORT_URL="https://bugs.debian.org/"
+"#;
+    let os = sanalu::discovery::OsInfo::parse(debian_os_release);
+    assert_eq!(os.id, "debian");
+    assert_eq!(os.name, "Debian GNU/Linux");
+    assert_eq!(os.version_id, "12");
+
+    let rhel_os_release = r#"
+NAME="Rocky Linux"
+VERSION="9.4 (Blue Onyx)"
+ID="rocky"
+ID_LIKE="rhel centos fedora"
+VERSION_ID="9.4"
+"#;
+    let rhel = sanalu::discovery::OsInfo::parse(rhel_os_release);
+    assert_eq!(rhel.id, "rocky");
+    assert!(rhel.id_like.contains(&"rhel".to_string()));
+    assert!(rhel.id_like.contains(&"fedora".to_string()));
+}

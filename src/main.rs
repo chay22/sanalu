@@ -46,7 +46,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
             run_daemon(&cli.config, dry_run).await?;
         }
         Commands::Status => {
-            handle_status(&mut stdout, db_path, socket_path).await?;
+            handle_status(&mut stdout, db_path, socket_path, &config).await?;
         }
         Commands::Ban {
             action,
@@ -140,6 +140,7 @@ async fn handle_status<W: Write>(
     out: &mut W,
     db_path: &Path,
     socket_path: &Path,
+    config: &AppConfig,
 ) -> Result<(), Box<dyn std::error::Error>> {
     let output = run_ipc_or_offline(socket_path, IpcRequest::Status, || {
         if !db_path.exists() {
@@ -150,7 +151,7 @@ async fn handle_status<W: Write>(
         }
         let store = RedbStore::open(db_path)?;
         let mut buf = Vec::new();
-        handlers::format_status(&mut buf, &store, db_path, None)?;
+        handlers::format_status(&mut buf, &store, db_path, Some(config))?;
         Ok(String::from_utf8(buf)?)
     })
     .await?;

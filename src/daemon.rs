@@ -54,17 +54,27 @@ pub fn bootstrap_files(config_path: &Path, db_path: &Path) -> Result<(), SanaluE
         std::fs::write(config_path, template)?;
     }
 
-    let completion_dirs = [
-        Path::new("/usr/share/bash-completion/completions"),
-        Path::new("/etc/bash_completion.d"),
-    ];
     if is_root() {
-        let mut buf = Vec::new();
-        generate_completions(clap_complete::Shell::Bash, &mut buf);
-        for dir in completion_dirs {
-            if dir.exists() {
-                let file = dir.join("sanalu");
-                let _ = std::fs::write(&file, &buf);
+        let paths = crate::discovery::detect_completion_paths();
+        if !paths.bash_paths.is_empty() {
+            let mut buf = Vec::new();
+            generate_completions(clap_complete::Shell::Bash, &mut buf);
+            for p in &paths.bash_paths {
+                let _ = std::fs::write(p, &buf);
+            }
+        }
+        if !paths.zsh_paths.is_empty() {
+            let mut buf = Vec::new();
+            generate_completions(clap_complete::Shell::Zsh, &mut buf);
+            for p in &paths.zsh_paths {
+                let _ = std::fs::write(p, &buf);
+            }
+        }
+        if !paths.fish_paths.is_empty() {
+            let mut buf = Vec::new();
+            generate_completions(clap_complete::Shell::Fish, &mut buf);
+            for p in &paths.fish_paths {
+                let _ = std::fs::write(p, &buf);
             }
         }
     }
@@ -96,6 +106,32 @@ pub fn get_effective_blocked_asns(config: &AppConfig, store: &RedbStore) -> Vec<
         }
     }
     asns.into_iter().collect()
+}
+
+pub fn get_effective_blocked_categories(config: &AppConfig, store: &RedbStore) -> Vec<String> {
+    let mut cats = std::collections::BTreeSet::new();
+    for cat in &config.bots.blocked_categories {
+        cats.insert(cat.clone());
+    }
+    if let Ok(db_cats) = store.list_blocked_categories() {
+        for cat in db_cats {
+            cats.insert(cat);
+        }
+    }
+    cats.into_iter().collect()
+}
+
+pub fn get_effective_allowed_regions(config: &AppConfig, store: &RedbStore) -> Vec<String> {
+    let mut regions = std::collections::BTreeSet::new();
+    for r in &config.asn_rules.allowed_regions {
+        regions.insert(r.clone());
+    }
+    if let Ok(db_regions) = store.list_allowed_regions() {
+        for r in db_regions {
+            regions.insert(r);
+        }
+    }
+    regions.into_iter().collect()
 }
 
 pub fn build_pipeline_from_config(
@@ -136,29 +172,14 @@ pub fn build_pipeline_from_config(
         restricted_asns.insert(asn);
     }
 
-    let mut allowed_regions = HashSet::new();
-    for r in &config.asn_rules.allowed_regions {
-        allowed_regions.insert(r.clone());
-    }
-    if let Ok(db_regions) = store.list_allowed_regions() {
-        for r in db_regions {
-            allowed_regions.insert(r);
-        }
-    }
+    let allowed_regions: HashSet<String> = get_effective_allowed_regions(config, store)
+        .into_iter()
+        .collect();
 
-    let mut blocked_categories = HashSet::new();
-    for cat_name in &config.bots.blocked_categories {
-        if let Some(cat) = BotCategory::from_str_name(cat_name) {
-            blocked_categories.insert(cat);
-        }
-    }
-    if let Ok(db_cats) = store.list_blocked_categories() {
-        for cat_name in db_cats {
-            if let Some(cat) = BotCategory::from_str_name(&cat_name) {
-                blocked_categories.insert(cat);
-            }
-        }
-    }
+    let blocked_categories: HashSet<BotCategory> = get_effective_blocked_categories(config, store)
+        .into_iter()
+        .filter_map(|c| BotCategory::from_str_name(&c))
+        .collect();
 
     ThreatPipeline::new(
         whitelisted_ips,
@@ -266,18 +287,17 @@ pub fn replay_log_file(log_path: &Path, allowed_endpoints: &[String]) -> Result<
     Ok(threat_count)
 }
 
-fn sync_asn_fallback(firewall: &NftablesBackend, ip_db_path: &Path, effective_asns: &[u32]) {
-    if !ip_db_path.exists() {
-        return;
+fn sync_asn_fallback(
+    firewall: &NftablesBackend,
+    geo_db: &crate::geo::IpLookupDb,
+    effective_asns: &[u32],
+) {
+    let mut asn_cidrs = Vec::new();
+    for &asn in effective_asns {
+        asn_cidrs.extend(geo_db.cidrs_for_asn(asn));
     }
-    if let Ok(geo_db) = crate::geo::IpLookupDb::from_file(ip_db_path) {
-        let mut asn_cidrs = Vec::new();
-        for &asn in effective_asns {
-            asn_cidrs.extend(geo_db.cidrs_for_asn(asn));
-        }
-        if !asn_cidrs.is_empty() {
-            let _ = firewall.sync_asn_cidrs(&asn_cidrs);
-        }
+    if !asn_cidrs.is_empty() {
+        let _ = firewall.sync_asn_cidrs(&asn_cidrs);
     }
 }
 
@@ -331,8 +351,14 @@ pub async fn run_daemon(config_path: &Path, dry_run_cli: bool) -> Result<(), San
     let firewall = Arc::new(NftablesBackend::auto_detect(dry_run));
     firewall.init_tables()?;
 
+    let geo_db = Arc::new(if config.general.ip_db_path.exists() {
+        crate::geo::IpLookupDb::from_file(&config.general.ip_db_path).unwrap_or_default()
+    } else {
+        crate::geo::IpLookupDb::empty()
+    });
+
     let effective_asns = get_effective_blocked_asns(&config, &store);
-    sync_asn_fallback(&firewall, &config.general.ip_db_path, &effective_asns);
+    sync_asn_fallback(&firewall, &geo_db, &effective_asns);
 
     let cf_tx = init_cloudflare_sync(&config, store.clone(), effective_asns, dry_run).await?;
 
@@ -363,6 +389,7 @@ pub async fn run_daemon(config_path: &Path, dry_run_cli: bool) -> Result<(), San
         let fw = firewall.clone();
         let st = store.clone();
         let cf = cf_tx.clone();
+        let geo = geo_db.clone();
 
         tokio::spawn(async move {
             let mut file = match File::open(&path) {
@@ -381,9 +408,10 @@ pub async fn run_daemon(config_path: &Path, dry_run_cli: bool) -> Result<(), San
                     Ok(_) => {
                         let trimmed = line.trim();
                         if let Some(entry) = parse_nginx_combined_line(trimmed) {
+                            let asn_info = geo.lookup(entry.client_ip);
                             let action = pipe.evaluate(
                                 entry.client_ip,
-                                None,
+                                asn_info.as_ref(),
                                 entry.user_agent,
                                 entry.method,
                                 entry.path,

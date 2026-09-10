@@ -41,10 +41,10 @@ Sanalu will parse `/etc/os-release` into an `OsInfo` struct, scan existing compl
 - Modify: `src/daemon.rs`
 - Test: `tests/daemon_pipeline_test.rs`
 
-- [ ] **Step 1: Write unit test for pipeline evaluation with geo metadata**
-- [ ] **Step 2: Run test to verify it fails**
-- [ ] **Step 3: Load `Arc<IpLookupDb>` in `run_daemon` and pass to Nginx watcher**
-- [ ] **Step 4: Run test to verify it passes**
+- [x] **Step 1: Write unit test for pipeline evaluation with geo metadata**
+- [x] **Step 2: Run test to verify it fails**
+- [x] **Step 3: Load `Arc<IpLookupDb>` in `run_daemon` and pass to Nginx watcher**
+- [x] **Step 4: Run test to verify it passes**
 
 ---
 
@@ -55,10 +55,10 @@ Sanalu will parse `/etc/os-release` into an `OsInfo` struct, scan existing compl
 - Modify: `src/daemon.rs`
 - Test: `tests/ipc_test.rs`
 
-- [ ] **Step 1: Write test for effective allowed regions and categories**
-- [ ] **Step 2: Run test to verify it fails**
-- [ ] **Step 3: Implement `get_effective_allowed_regions`, `get_effective_blocked_categories`, and update `format_status`**
-- [ ] **Step 4: Run test to verify it passes**
+- [x] **Step 1: Write test for effective allowed regions and categories**
+- [x] **Step 2: Run test to verify it fails**
+- [x] **Step 3: Implement `get_effective_allowed_regions`, `get_effective_blocked_categories`, and update `format_status`**
+- [x] **Step 4: Run test to verify it passes**
 
 ---
 
@@ -68,10 +68,10 @@ Sanalu will parse `/etc/os-release` into an `OsInfo` struct, scan existing compl
 - Modify: `src/ipc/handlers.rs`
 - Test: `tests/ipc_test.rs`
 
-- [ ] **Step 1: Write unit test for civil date/time formatting (e.g. `21 Sept 2026 14:32:05 UTC`)**
-- [ ] **Step 2: Run test to verify it fails**
-- [ ] **Step 3: Implement zero-dependency `format_datetime` and `format_date` and update all CLI outputs (`format_status`, `format_check`, `format_ban_list`)**
-- [ ] **Step 4: Run test to verify it passes**
+- [x] **Step 1: Write unit test for civil date/time formatting (e.g. `21 Sept 2026 14:32:05 UTC`)**
+- [x] **Step 2: Run test to verify it fails**
+- [x] **Step 3: Implement zero-dependency `format_datetime` and `format_date` and update all CLI outputs (`format_status`, `format_check`, `format_ban_list`)**
+- [x] **Step 4: Run test to verify it passes**
 
 ---
 
@@ -84,19 +84,19 @@ Sanalu will parse `/etc/os-release` into an `OsInfo` struct, scan existing compl
 - Modify: `src/uninstall.rs`
 - Test: `tests/discovery_test.rs`
 
-- [ ] **Step 1: Write test for OS detection (`/etc/os-release`) and completion path resolution**
-- [ ] **Step 2: Run test to verify it fails**
-- [ ] **Step 3: Implement `src/discovery/os.rs` to parse `/etc/os-release` and resolve distro completion paths**
-- [ ] **Step 4: Update `bootstrap_files` in `src/daemon.rs` to install Bash, Zsh, and Fish completions to detected paths**
-- [ ] **Step 5: Update `src/uninstall.rs` to clean up all installed completion files**
-- [ ] **Step 6: Run test to verify it passes**
+- [x] **Step 1: Write test for OS detection (`/etc/os-release`) and completion path resolution**
+- [x] **Step 2: Run test to verify it fails**
+- [x] **Step 3: Implement `src/discovery/os.rs` to parse `/etc/os-release` and resolve distro completion paths**
+- [x] **Step 4: Update `bootstrap_files` in `src/daemon.rs` to install Bash, Zsh, and Fish completions to detected paths**
+- [x] **Step 5: Update `src/uninstall.rs` to clean up all installed completion files**
+- [x] **Step 6: Run test to verify it passes**
 
 ---
 
 ### Task 5: Comprehensive Verification
 
-- [ ] **Step 1: Check formatting** (`rtk cargo fmt --all -- --check`)
-- [ ] **Step 2: Check clippy** (`rtk cargo clippy --all-targets -- -D warnings`)
-- [ ] **Step 3: Run entire test suite** (`rtk cargo test`)
-- [ ] **Step 4: Run Sentrux architecture check** (`sentrux check .`)
-- [ ] **Step 5: Verify zero comments in `.rs` files**
+- [x] **Step 1: Check formatting** (`rtk cargo fmt --all -- --check`)
+- [x] **Step 2: Check clippy** (`rtk cargo clippy --all-targets -- -D warnings`)
+- [x] **Step 3: Run entire test suite** (`rtk cargo test`)
+- [x] **Step 4: Run Sentrux architecture check** (`sentrux check .`)
+- [x] **Step 5: Verify zero comments in `.rs` files**

@@ -63,17 +63,25 @@ pub fn remove_firewall_table<W: Write>(out: &mut W, dry_run: bool) -> Result<(),
 }
 
 pub fn remove_completions<W: Write>(out: &mut W, dry_run: bool) -> Result<(), SanaluError> {
-    let completion_file = Path::new("/etc/bash_completion.d/sanalu");
-    if completion_file.exists() {
-        if dry_run {
-            let _ = writeln!(
-                out,
-                "[dry-run] Would remove completion file: {:?}",
-                completion_file
-            );
-        } else {
-            std::fs::remove_file(completion_file)?;
-            let _ = writeln!(out, "[x] Removed completion file: {:?}", completion_file);
+    let candidate_files = [
+        Path::new("/etc/profile.d/sanalu.sh"),
+        Path::new("/etc/bash_completion.d/sanalu"),
+        Path::new("/usr/share/bash-completion/completions/sanalu"),
+        Path::new("/usr/share/zsh/vendor-completions/_sanalu"),
+        Path::new("/usr/share/zsh/site-functions/_sanalu"),
+        Path::new("/usr/local/share/zsh/site-functions/_sanalu"),
+        Path::new("/usr/share/fish/vendor_completions.d/sanalu.fish"),
+        Path::new("/etc/fish/completions/sanalu.fish"),
+    ];
+
+    for file in candidate_files {
+        if file.exists() {
+            if dry_run {
+                let _ = writeln!(out, "[dry-run] Would remove completion file: {:?}", file);
+            } else {
+                std::fs::remove_file(file)?;
+                let _ = writeln!(out, "[x] Removed completion file: {:?}", file);
+            }
         }
     }
     Ok(())
