@@ -34,7 +34,7 @@ order = 2
 
 [[layers]]
 name = "core"
-paths = ["src/error.rs", "src/config.rs"]
+paths = ["src/error.rs", "src/config/**"]
 order = 3
 
 [[boundaries]]
