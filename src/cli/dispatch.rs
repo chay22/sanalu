@@ -77,7 +77,7 @@ pub async fn dispatch_cli<W: Write>(
         | Commands::Category { .. }
         | Commands::Asn { .. }
         | Commands::Region { .. }) => {
-            handle_policy_command(out, db_path, socket_path, cmd).await?;
+            handle_policy_command(out, db_path, socket_path, config, cmd).await?;
         }
         Commands::Discover => {
             handle_discover(out);

@@ -61,6 +61,7 @@ pub async fn run_daemon(config_path: &Path, dry_run_cli: bool) -> Result<(), San
 
     let db_path = &config.general.db_path;
     let store = Arc::new(RedbStore::open(db_path)?);
+    store.sync_from_config(&config)?;
 
     let firewall = Arc::new(NftablesBackend::auto_detect(dry_run));
     firewall.init_tables()?;

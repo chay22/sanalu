@@ -69,8 +69,12 @@ pub fn execute_offline_ban_list(
 pub fn execute_offline_whitelist(
     db_path: &Path,
     action: WhitelistCommands,
+    config: Option<&AppConfig>,
 ) -> Result<String, SanaluError> {
     let store = RedbStore::open(db_path)?;
+    if let Some(cfg) = config {
+        let _ = store.sync_from_config(cfg);
+    }
     let mut buf = Vec::new();
     execute_whitelist(&mut buf, &store, action)?;
     String::from_utf8(buf).map_err(|e| SanaluError::Storage(e.to_string()))
@@ -79,15 +83,26 @@ pub fn execute_offline_whitelist(
 pub fn execute_offline_category(
     db_path: &Path,
     action: CategoryCommands,
+    config: Option<&AppConfig>,
 ) -> Result<String, SanaluError> {
     let store = RedbStore::open(db_path)?;
+    if let Some(cfg) = config {
+        let _ = store.sync_from_config(cfg);
+    }
     let mut buf = Vec::new();
     execute_category(&mut buf, &store, action)?;
     String::from_utf8(buf).map_err(|e| SanaluError::Storage(e.to_string()))
 }
 
-pub fn execute_offline_asn(db_path: &Path, action: AsnCommands) -> Result<String, SanaluError> {
+pub fn execute_offline_asn(
+    db_path: &Path,
+    action: AsnCommands,
+    config: Option<&AppConfig>,
+) -> Result<String, SanaluError> {
     let store = RedbStore::open(db_path)?;
+    if let Some(cfg) = config {
+        let _ = store.sync_from_config(cfg);
+    }
     let mut buf = Vec::new();
     execute_asn(&mut buf, &store, action)?;
     String::from_utf8(buf).map_err(|e| SanaluError::Storage(e.to_string()))
@@ -96,8 +111,12 @@ pub fn execute_offline_asn(db_path: &Path, action: AsnCommands) -> Result<String
 pub fn execute_offline_region(
     db_path: &Path,
     action: RegionCommands,
+    config: Option<&AppConfig>,
 ) -> Result<String, SanaluError> {
     let store = RedbStore::open(db_path)?;
+    if let Some(cfg) = config {
+        let _ = store.sync_from_config(cfg);
+    }
     let mut buf = Vec::new();
     execute_region(&mut buf, &store, action)?;
     String::from_utf8(buf).map_err(|e| SanaluError::Storage(e.to_string()))

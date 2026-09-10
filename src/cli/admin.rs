@@ -13,6 +13,7 @@ pub async fn handle_policy_command<W: Write>(
     out: &mut W,
     db_path: &Path,
     socket_path: &Path,
+    config: &AppConfig,
     cmd: &Commands,
 ) -> Result<(), Box<dyn std::error::Error>> {
     let output = match cmd {
@@ -22,7 +23,7 @@ pub async fn handle_policy_command<W: Write>(
             };
             let act = action.clone();
             run_ipc_or_offline(socket_path, req, || {
-                Ok(crate::ipc::execute_offline_whitelist(db_path, act)?)
+                Ok(crate::ipc::execute_offline_whitelist(db_path, act, Some(config))?)
             })
             .await?
         }
@@ -32,7 +33,7 @@ pub async fn handle_policy_command<W: Write>(
             };
             let act = action.clone();
             run_ipc_or_offline(socket_path, req, || {
-                Ok(crate::ipc::execute_offline_category(db_path, act)?)
+                Ok(crate::ipc::execute_offline_category(db_path, act, Some(config))?)
             })
             .await?
         }
@@ -42,7 +43,7 @@ pub async fn handle_policy_command<W: Write>(
             };
             let act = action.clone();
             run_ipc_or_offline(socket_path, req, || {
-                Ok(crate::ipc::execute_offline_asn(db_path, act)?)
+                Ok(crate::ipc::execute_offline_asn(db_path, act, Some(config))?)
             })
             .await?
         }
@@ -52,7 +53,7 @@ pub async fn handle_policy_command<W: Write>(
             };
             let act = action.clone();
             run_ipc_or_offline(socket_path, req, || {
-                Ok(crate::ipc::execute_offline_region(db_path, act)?)
+                Ok(crate::ipc::execute_offline_region(db_path, act, Some(config))?)
             })
             .await?
         }

@@ -181,3 +181,38 @@ fn test_cli_parse_version_command() {
         _ => panic!("wrong command"),
     }
 }
+
+#[tokio::test]
+async fn test_offline_policy_list_reflects_config() {
+    let temp_dir = tempfile::tempdir().unwrap();
+    let db_path = temp_dir.path().join("offline_sync.redb");
+    let socket_path = temp_dir.path().join("non_existent.sock");
+
+    let mut cfg = sanalu::config::AppConfig::default();
+    cfg.asn_rules.blocked_asns = vec![13335, 15169];
+    cfg.asn_rules.allowed_regions = vec!["ID".into(), "SG".into()];
+
+    let mut buf = Vec::new();
+    let cmd = sanalu::cli::Commands::Asn {
+        action: sanalu::cli::AsnCommands::List,
+    };
+    sanalu::cli::handle_policy_command(&mut buf, &db_path, &socket_path, &cfg, &cmd)
+        .await
+        .unwrap();
+
+    let output = String::from_utf8(buf).unwrap();
+    assert!(output.contains("13335"));
+    assert!(output.contains("15169"));
+
+    let mut reg_buf = Vec::new();
+    let reg_cmd = sanalu::cli::Commands::Region {
+        action: sanalu::cli::RegionCommands::List,
+    };
+    sanalu::cli::handle_policy_command(&mut reg_buf, &db_path, &socket_path, &cfg, &reg_cmd)
+        .await
+        .unwrap();
+
+    let reg_output = String::from_utf8(reg_buf).unwrap();
+    assert!(reg_output.contains("ID"));
+    assert!(reg_output.contains("SG"));
+}

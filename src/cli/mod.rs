@@ -5,6 +5,7 @@ pub mod bootstrap;
 pub mod dispatch;
 pub mod query;
 
+pub use admin::handle_policy_command;
 pub use args::{
     AsnCommands, BanCommands, CategoryCommands, Cli, CloudflareCommands, Commands, RegionCommands,
     WhitelistCommands,
