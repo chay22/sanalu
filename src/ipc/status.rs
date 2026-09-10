@@ -11,7 +11,7 @@ pub fn format_status<W: Write>(
     out: &mut W,
     store: &RedbStore,
     db_path: &Path,
-    config: Option<&AppConfig>,
+    _config: Option<&AppConfig>,
 ) -> Result<(), SanaluError> {
     let _ = writeln!(out, "=== Sanalu Status ===");
     let _ = writeln!(out, "Database: {:?}", db_path);
@@ -45,48 +45,28 @@ pub fn format_status<W: Write>(
     }
 
     let db_cats = store.list_blocked_categories().unwrap_or_default();
-    if let Some(cfg) = config {
-        let effective = crate::engine::get_effective_blocked_categories(cfg, store);
-        let _ = writeln!(
-            out,
-            "\nBlocked Categories: {} in config, {} dynamic in DB ({} effective: {:?})",
-            cfg.bots.blocked_categories.len(),
-            db_cats.len(),
-            effective.len(),
-            effective
-        );
-    } else {
-        let _ = writeln!(out, "\nBlocked Categories in DB: {:?}", db_cats);
-    }
+    let _ = writeln!(
+        out,
+        "\nBlocked Categories ({}): {:?}",
+        db_cats.len(),
+        db_cats
+    );
 
     let db_asns = store.list_blocked_asns().unwrap_or_default();
-    if let Some(cfg) = config {
-        let effective = crate::engine::get_effective_blocked_asns(cfg, store);
-        let _ = writeln!(
-            out,
-            "Blocked ASNs: {} in config, {} dynamic in DB ({} effective)",
-            cfg.asn_rules.blocked_asns.len(),
-            db_asns.len(),
-            effective.len()
-        );
-    } else {
-        let _ = writeln!(out, "Blocked ASNs in DB: {:?}", db_asns);
+    let _ = writeln!(out, "Blocked ASNs ({}): {:?}", db_asns.len(), db_asns);
+
+    let db_rasns = store.list_restricted_asns().unwrap_or_default();
+    if !db_rasns.is_empty() {
+        let _ = writeln!(out, "Restricted ASNs ({}): {:?}", db_rasns.len(), db_rasns);
     }
 
     let db_regions = store.list_allowed_regions().unwrap_or_default();
-    if let Some(cfg) = config {
-        let effective = crate::engine::get_effective_allowed_regions(cfg, store);
-        let _ = writeln!(
-            out,
-            "Allowed Regions: {} in config, {} dynamic in DB ({} effective: {:?})",
-            cfg.asn_rules.allowed_regions.len(),
-            db_regions.len(),
-            effective.len(),
-            effective
-        );
-    } else {
-        let _ = writeln!(out, "Allowed Regions in DB: {:?}", db_regions);
-    }
+    let _ = writeln!(
+        out,
+        "Allowed Regions ({}): {:?}",
+        db_regions.len(),
+        db_regions
+    );
 
     let cf_state = store.get_cloudflare_state().unwrap_or_default();
     let _ = writeln!(out, "\nCloudflare Active Expression: {:?}", cf_state);

@@ -204,3 +204,38 @@ fn test_ipc_protocol_serde() {
     assert_eq!(decoded_resp.output, "all good");
     assert!(decoded_resp.error.is_none());
 }
+
+#[test]
+fn test_status_output_presents_authoritative_database() {
+    let temp_dir = tempfile::tempdir().unwrap();
+    let db_path = temp_dir.path().join("status_authoritative.redb");
+    let store = sanalu::storage::RedbStore::open(&db_path).unwrap();
+
+    store.set_asn_blocked(13335, true).unwrap();
+    store.set_region_allowed("ID", true).unwrap();
+    store.set_category_blocked("bad_scraper", true).unwrap();
+
+    let mut buf = Vec::new();
+    sanalu::ipc::handlers::format_status(&mut buf, &store, &db_path, None).unwrap();
+    let output = String::from_utf8(buf).unwrap();
+
+    assert!(output.contains("Blocked Categories (1): [\"bad_scraper\"]"));
+    assert!(output.contains("Blocked ASNs (1): [13335]"));
+    assert!(output.contains("Allowed Regions (1): [\"ID\"]"));
+}
+
+#[test]
+fn test_status_output_with_restricted_asns() {
+    let temp_dir = tempfile::tempdir().unwrap();
+    let db_path = temp_dir.path().join("status_restricted.redb");
+    let store = sanalu::storage::RedbStore::open(&db_path).unwrap();
+
+    store.set_asn_restricted(64496, true).unwrap();
+
+    let mut buf = Vec::new();
+    sanalu::ipc::handlers::format_status(&mut buf, &store, &db_path, None).unwrap();
+    let output = String::from_utf8(buf).unwrap();
+
+    assert!(output.contains("Restricted ASNs (1): [64496]"));
+}
+
