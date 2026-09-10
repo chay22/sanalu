@@ -209,7 +209,10 @@ fn test_threat_pipeline_builds_from_store() {
         "GET",
         "/",
     );
-    assert!(matches!(blocked_action, sanalu::intelligence::PipelineAction::Ban { .. }));
+    assert!(matches!(
+        blocked_action,
+        sanalu::intelligence::PipelineAction::Ban { .. }
+    ));
 
     store.set_asn_restricted(64496, true).unwrap();
     let direct_pipeline = sanalu::engine::build_pipeline_from_store(&store, &[]).unwrap();
@@ -225,6 +228,8 @@ fn test_threat_pipeline_builds_from_store() {
         "GET",
         "/",
     );
-    assert!(matches!(restricted_action, sanalu::intelligence::PipelineAction::Ban { .. }));
+    assert!(matches!(
+        restricted_action,
+        sanalu::intelligence::PipelineAction::Ban { .. }
+    ));
 }
-

@@ -238,4 +238,3 @@ fn test_status_output_with_restricted_asns() {
 
     assert!(output.contains("Restricted ASNs (1): [64496]"));
 }
-

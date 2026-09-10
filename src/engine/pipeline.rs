@@ -70,4 +70,3 @@ pub fn build_pipeline_from_config(
     let _ = store.sync_from_config(config);
     build_pipeline_from_store(store, &config.nginx.allowed_endpoints)
 }
-
