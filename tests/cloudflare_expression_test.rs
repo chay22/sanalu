@@ -1,4 +1,6 @@
-use sanalu::cloudflare::{CloudflareClient, CloudflareRuleBudget, parse_cf_error};
+use sanalu::cloudflare::{
+    CloudflareClient, CloudflareRuleBudget, CloudflareSyncWorker, parse_cf_error,
+};
 use sanalu::config::CloudflareConfig;
 use std::net::Ipv4Addr;
 
@@ -134,4 +136,54 @@ async fn test_cf_client_dry_run_bypasses_network() {
     let client = CloudflareClient::new(config, true).unwrap();
     let res = client.update_waf_rule("ip.src == 1.2.3.4").await;
     assert!(res.is_ok());
+}
+
+#[test]
+fn test_cloudflare_rule_budget_from_store_state() {
+    let temp_dir = tempfile::tempdir().unwrap();
+    let db_path = temp_dir.path().join("cf_store.redb");
+    let store = sanalu::storage::RedbStore::open(&db_path).unwrap();
+
+    store.set_asn_blocked(13335, true).unwrap();
+    store.set_asn_restricted(64496, true).unwrap();
+    store.set_region_allowed("ID", true).unwrap();
+
+    let budget = CloudflareRuleBudget::new(
+        2048,
+        store.list_blocked_asns().unwrap(),
+        store.list_restricted_asns().unwrap(),
+        store.list_allowed_regions().unwrap(),
+    );
+
+    let (expr, _) = budget.render_expression(&[]);
+    assert!(expr.contains("ip.src.asnum in {13335}"));
+    assert!(expr.contains("ip.src.asnum in {64496}"));
+    assert!(expr.contains("not ip.src.country in {\"ID\"}"));
+}
+
+#[tokio::test]
+async fn test_cloudflare_sync_worker_reads_dynamically_from_store() {
+    let temp_dir = tempfile::tempdir().unwrap();
+    let db_path = temp_dir.path().join("cf_worker.redb");
+    let store = std::sync::Arc::new(sanalu::storage::RedbStore::open(&db_path).unwrap());
+
+    let config = CloudflareConfig {
+        enabled: true,
+        api_token: "token123".into(),
+        zone_id: "zone123".into(),
+        ..Default::default()
+    };
+    let client = CloudflareClient::new(config, true).unwrap();
+    let tx = CloudflareSyncWorker::spawn(client, store.clone(), 2048, 0);
+
+    store.set_asn_blocked(13335, true).unwrap();
+    store.set_asn_restricted(64496, true).unwrap();
+    store.set_region_allowed("ID", true).unwrap();
+    let _ = tx.send(()).await;
+    tokio::time::sleep(std::time::Duration::from_millis(50)).await;
+
+    let state = store.get_cloudflare_state().unwrap().unwrap_or_default();
+    assert!(state.contains("ip.src.asnum in {13335}"));
+    assert!(state.contains("ip.src.asnum in {64496}"));
+    assert!(state.contains("not ip.src.country in {\"ID\"}"));
 }

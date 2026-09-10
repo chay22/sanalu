@@ -74,12 +74,11 @@ pub async fn execute_cloudflare<W: Write>(
                 return Ok(());
             }
             let _ = writeln!(out, "Triggering Cloudflare WAF synchronization...");
-            let effective_asns = crate::engine::get_effective_blocked_asns(config, store);
             let budget = CloudflareRuleBudget::new(
                 config.cloudflare.max_rule_chars,
-                effective_asns,
-                config.asn_rules.restricted_asns.clone(),
-                config.asn_rules.allowed_regions.clone(),
+                store.list_blocked_asns().unwrap_or_default(),
+                store.list_restricted_asns().unwrap_or_default(),
+                store.list_allowed_regions().unwrap_or_default(),
             );
             let client = CloudflareClient::new(config.cloudflare.clone(), false)?;
             let bans = store.list_active_bans()?;
