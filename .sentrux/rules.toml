@@ -16,7 +16,7 @@ paths = [
     "src/discovery/**",
     "src/ipc/**",
     "src/daemon.rs",
-    "src/uninstall.rs",
+    "src/uninstall/**",
 ]
 order = 1
 

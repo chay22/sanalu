@@ -125,3 +125,12 @@ pub fn detect_completion_paths() -> CompletionPaths {
         fish_paths,
     }
 }
+
+pub fn is_root() -> bool {
+    if let Ok(output) = std::process::Command::new("id").arg("-u").output() {
+        let s = String::from_utf8_lossy(&output.stdout);
+        s.trim() == "0"
+    } else {
+        false
+    }
+}

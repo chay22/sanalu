@@ -1,4 +1,4 @@
-use sanalu::daemon::generate_completions;
+use sanalu::cli::generate_completions;
 use sanalu::storage::{RedbStore, StoredBanRecord, parse_cidr};
 use std::net::IpAddr;
 use std::time::SystemTime;

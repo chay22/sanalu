@@ -6,7 +6,7 @@ pub use nginx::{
     DiscoveredNginxLog, NginxFieldToken, NginxLogFormatKind, classify_format_body,
     discover_nginx_logs_in_dir, parse_nginx_access_logs, parse_nginx_config_for_formats,
 };
-pub use os::{CompletionPaths, OsInfo, detect_completion_paths};
+pub use os::{CompletionPaths, OsInfo, detect_completion_paths, is_root};
 pub use ssh::{SshLogSource, detect_ssh_source};
 
 use std::path::{Path, PathBuf};

@@ -1,7 +1,7 @@
 use clap::Parser;
-use sanalu::cli::{Cli, dispatch_cli};
+use sanalu::cli::{Cli, bootstrap_files, dispatch_cli};
 use sanalu::config::{AppConfig, parse_app_config};
-use sanalu::daemon::{bootstrap_files, is_root};
+use sanalu::discovery::is_root;
 
 #[tokio::main]
 async fn main() -> Result<(), Box<dyn std::error::Error>> {

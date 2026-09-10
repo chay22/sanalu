@@ -1,5 +1,6 @@
 pub mod blacklist_conf;
 pub mod bot_category;
+pub mod patterns;
 pub mod pipeline;
 pub mod probes;
 pub mod user_agent;
