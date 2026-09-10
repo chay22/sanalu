@@ -52,3 +52,28 @@ from = "src/geo/**"
 to = "src/daemon.rs"
 reason = "Offline IP lookup database must remain standalone and not depend on daemon lifecycle"
 
+[[boundaries]]
+from = "src/daemon.rs"
+to = "src/cli/**"
+reason = "Daemon service must never depend on CLI commands or argument parsing"
+
+[[boundaries]]
+from = "src/engine/**"
+to = "src/cli/**"
+reason = "Threat detection engine must not depend on CLI interface"
+
+[[boundaries]]
+from = "src/storage/**"
+to = "src/ipc/**"
+reason = "Storage engine must not depend on IPC presentation logic"
+
+[[boundaries]]
+from = "src/parser/**"
+to = "src/storage/**"
+reason = "Log parsers must remain pure transformers and not depend on storage"
+
+[[boundaries]]
+from = "src/intelligence/**"
+to = "src/firewall/**"
+reason = "Threat intelligence classification must not directly execute firewall packet operations"
+
