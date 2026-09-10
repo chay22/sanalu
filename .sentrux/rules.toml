@@ -37,3 +37,18 @@ name = "core"
 paths = ["src/error.rs", "src/config.rs"]
 order = 3
 
+[[boundaries]]
+from = "src/storage/**"
+to = "src/cloudflare/**"
+reason = "Storage must be an independent persistence layer and never depend on external cloud services"
+
+[[boundaries]]
+from = "src/firewall/**"
+to = "src/ipc/**"
+reason = "Low-level firewall packet filtering must not depend on IPC presentation logic"
+
+[[boundaries]]
+from = "src/geo/**"
+to = "src/daemon.rs"
+reason = "Offline IP lookup database must remain standalone and not depend on daemon lifecycle"
+
