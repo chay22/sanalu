@@ -1,6 +1,11 @@
-use crate::config::CloudflareConfig;
 use crate::error::SanaluError;
 use serde_json::json;
+
+pub struct RuleParams<'a> {
+    pub zone_id: &'a str,
+    pub action: &'a str,
+    pub rule_name: &'a str,
+}
 
 pub fn parse_cf_error(status: u16, body_text: &str) -> SanaluError {
     if let Ok(v) = serde_json::from_str::<serde_json::Value>(body_text) {
@@ -47,19 +52,19 @@ pub fn find_sanalu_rule_id(rules: &[serde_json::Value]) -> Option<String> {
 
 pub async fn patch_rule(
     client: &reqwest::Client,
-    config: &CloudflareConfig,
+    params: &RuleParams<'_>,
     ruleset_id: &str,
     rule_id: &str,
     expression: &str,
 ) -> Result<(), SanaluError> {
     let url = format!(
         "https://api.cloudflare.com/client/v4/zones/{}/rulesets/{}/rules/{}",
-        config.zone_id, ruleset_id, rule_id
+        params.zone_id, ruleset_id, rule_id
     );
     let body = json!({
-        "action": config.action,
+        "action": params.action,
         "expression": expression,
-        "description": format!("Managed by sanalu: {}", config.rule_name),
+        "description": format!("Managed by sanalu: {}", params.rule_name),
         "enabled": true
     });
     let resp = client
@@ -79,18 +84,18 @@ pub async fn patch_rule(
 
 pub async fn create_rule(
     client: &reqwest::Client,
-    config: &CloudflareConfig,
+    params: &RuleParams<'_>,
     ruleset_id: &str,
     expression: &str,
 ) -> Result<(), SanaluError> {
     let url = format!(
         "https://api.cloudflare.com/client/v4/zones/{}/rulesets/{}/rules",
-        config.zone_id, ruleset_id
+        params.zone_id, ruleset_id
     );
     let body = json!({
-        "action": config.action,
+        "action": params.action,
         "expression": expression,
-        "description": format!("Managed by sanalu: {}", config.rule_name),
+        "description": format!("Managed by sanalu: {}", params.rule_name),
         "enabled": true
     });
     let resp = client
@@ -110,12 +115,12 @@ pub async fn create_rule(
 
 pub async fn create_entrypoint_ruleset(
     client: &reqwest::Client,
-    config: &CloudflareConfig,
+    params: &RuleParams<'_>,
     expression: &str,
 ) -> Result<(), SanaluError> {
     let url = format!(
         "https://api.cloudflare.com/client/v4/zones/{}/rulesets",
-        config.zone_id
+        params.zone_id
     );
     let body = json!({
         "name": "default",
@@ -123,9 +128,9 @@ pub async fn create_entrypoint_ruleset(
         "phase": "http_request_firewall_custom",
         "rules": [
             {
-                "action": config.action,
+                "action": params.action,
                 "expression": expression,
-                "description": format!("Managed by sanalu: {}", config.rule_name),
+                "description": format!("Managed by sanalu: {}", params.rule_name),
                 "enabled": true
             }
         ]

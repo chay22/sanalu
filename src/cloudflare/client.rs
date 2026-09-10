@@ -1,4 +1,6 @@
-use super::ruleset::{create_entrypoint_ruleset, create_rule, find_sanalu_rule_id, patch_rule};
+use super::ruleset::{
+    RuleParams, create_entrypoint_ruleset, create_rule, find_sanalu_rule_id, patch_rule,
+};
 use crate::config::CloudflareConfig;
 use crate::error::SanaluError;
 use reqwest::header::{AUTHORIZATION, CONTENT_TYPE, HeaderMap, HeaderValue};
@@ -42,6 +44,14 @@ impl CloudflareClient {
         !self.config.api_token.is_empty() && !self.config.zone_id.is_empty()
     }
 
+    fn rule_params(&self) -> RuleParams<'_> {
+        RuleParams {
+            zone_id: &self.config.zone_id,
+            action: &self.config.action,
+            rule_name: &self.config.rule_name,
+        }
+    }
+
     pub async fn update_waf_rule(&self, expression: &str) -> Result<(), SanaluError> {
         if self.dry_run || !self.is_configured() {
             return Ok(());
@@ -56,8 +66,10 @@ impl CloudflareClient {
             ));
         }
 
+        let params = self.rule_params();
+
         if let (Some(rs_id), Some(r_id)) = (explicit_ruleset, explicit_rule) {
-            return patch_rule(&self.http_client, &self.config, rs_id, r_id, expression).await;
+            return patch_rule(&self.http_client, &params, rs_id, r_id, expression).await;
         }
 
         if let Some(rs_id) = explicit_ruleset {
@@ -75,7 +87,7 @@ impl CloudflareClient {
             if !resp.status().is_success() {
                 let status = resp.status().as_u16();
                 let err_text = resp.text().await.unwrap_or_default();
-                return Err(parse_cf_error(status, &err_text));
+                return Err(super::ruleset::parse_cf_error(status, &err_text));
             }
             let data: serde_json::Value = resp
                 .json()
@@ -89,10 +101,9 @@ impl CloudflareClient {
                 .unwrap_or(&empty_rules);
 
             if let Some(rule_id) = find_sanalu_rule_id(rules) {
-                return patch_rule(&self.http_client, &self.config, rs_id, &rule_id, expression)
-                    .await;
+                return patch_rule(&self.http_client, &params, rs_id, &rule_id, expression).await;
             }
-            return create_rule(&self.http_client, &self.config, rs_id, expression).await;
+            return create_rule(&self.http_client, &params, rs_id, expression).await;
         }
 
         let entrypoint_url = format!(
@@ -107,13 +118,13 @@ impl CloudflareClient {
             .map_err(|e| SanaluError::Cloudflare(e.to_string()))?;
 
         if resp.status().as_u16() == 404 {
-            return create_entrypoint_ruleset(&self.http_client, &self.config, expression).await;
+            return create_entrypoint_ruleset(&self.http_client, &params, expression).await;
         }
 
         if !resp.status().is_success() {
             let status = resp.status().as_u16();
             let err_text = resp.text().await.unwrap_or_default();
-            return Err(parse_cf_error(status, &err_text));
+            return Err(super::ruleset::parse_cf_error(status, &err_text));
         }
 
         let data: serde_json::Value = resp
@@ -135,16 +146,9 @@ impl CloudflareClient {
             .unwrap_or(&empty_rules);
 
         if let Some(rule_id) = find_sanalu_rule_id(rules) {
-            patch_rule(
-                &self.http_client,
-                &self.config,
-                ruleset_id,
-                &rule_id,
-                expression,
-            )
-            .await
+            patch_rule(&self.http_client, &params, ruleset_id, &rule_id, expression).await
         } else {
-            create_rule(&self.http_client, &self.config, ruleset_id, expression).await
+            create_rule(&self.http_client, &params, ruleset_id, expression).await
         }
     }
 }
