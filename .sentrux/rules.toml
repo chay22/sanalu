@@ -5,6 +5,35 @@ max_cc = 25
 no_god_files = true
 
 [[layers]]
-name = "cli"
-paths = ["src/*"]
+name = "core"
+paths = ["src/error.rs", "src/config.rs"]
 order = 0
+
+[[layers]]
+name = "domain"
+paths = [
+    "src/storage/**",
+    "src/firewall/**",
+    "src/geo/**",
+    "src/parser/**",
+    "src/intelligence/**",
+    "src/engine/**",
+]
+order = 1
+
+[[layers]]
+name = "services"
+paths = [
+    "src/cloudflare/**",
+    "src/discovery/**",
+    "src/ipc/**",
+    "src/daemon.rs",
+    "src/uninstall.rs",
+]
+order = 2
+
+[[layers]]
+name = "cli"
+paths = ["src/cli/**", "src/main.rs"]
+order = 3
+

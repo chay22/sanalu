@@ -1,5 +1,5 @@
 use super::expression::CloudflareRuleBudget;
-use crate::config::CloudflareConfig;
+use crate::config::{AppConfig, CloudflareConfig};
 use crate::error::SanaluError;
 use crate::storage::RedbStore;
 use reqwest::header::{AUTHORIZATION, CONTENT_TYPE, HeaderMap, HeaderValue};
@@ -288,6 +288,32 @@ pub struct CloudflareSyncWorker {
 }
 
 impl CloudflareSyncWorker {
+    pub async fn start_if_enabled(
+        config: &AppConfig,
+        store: Arc<RedbStore>,
+        effective_asns: Vec<u32>,
+        dry_run: bool,
+    ) -> Result<Option<mpsc::Sender<()>>, SanaluError> {
+        if !config.cloudflare.enabled || config.cloudflare.api_token.is_empty() {
+            return Ok(None);
+        }
+        let cf_client = CloudflareClient::new(config.cloudflare.clone(), dry_run)?;
+        let budget = CloudflareRuleBudget::new(
+            config.cloudflare.max_rule_chars,
+            effective_asns,
+            config.asn_rules.restricted_asns.clone(),
+            config.asn_rules.allowed_regions.clone(),
+        );
+        let tx = Self::spawn(
+            cf_client,
+            store,
+            budget,
+            config.cloudflare.sync_batch_seconds,
+        );
+        let _ = tx.send(()).await;
+        Ok(Some(tx))
+    }
+
     pub fn spawn(
         client: CloudflareClient,
         store: Arc<RedbStore>,

@@ -1,4 +1,6 @@
+pub mod actions;
 pub mod client;
+pub mod format;
 pub mod handlers;
 pub mod protocol;
 pub mod server;
