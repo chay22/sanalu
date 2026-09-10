@@ -1,11 +1,12 @@
-# Plan 09: Local Origin ASN & Region Enforcement, Status Harmonization, and Shell Completion
+# Plan 09: Local Origin Defense, Status Harmonization, Human Timestamps & Auto-Completions
 
 > **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development (recommended) or superpowers:executing-plans to implement this plan task-by-task. Steps use checkbox (`- [ ]`) syntax for tracking.
 
-**Goal:** 
-1. Close the local origin defense gap so that incoming traffic hitting the server directly is evaluated against blocked ASNs and restricted regional rules locally via the offline in-memory `IpLookupDb` (zero 3rd party APIs, zero internet).
-2. Harmonize `sanalu status` to clearly display config vs DB vs effective state for all rule types.
-3. Fix shell completion so it reliably works on all Linux systems and login shells (including root shells without `bash-completion` package).
+**Goal:**
+1. **Local Origin Defense:** In-memory offline evaluation of blocked ASNs and restricted regional rules on live Nginx logs (zero 3rd party APIs, zero internet).
+2. **Status Harmonization:** Report `X in config, Y dynamic in DB (Z effective)` for all policy types (`Blocked Categories`, `Blocked ASNs`, `Allowed Regions`).
+3. **Human-Readable Timestamps:** Replace all raw `unix <timestamp>` outputs across all commands with `DD-MMM-YYYY` (e.g. `21 Sept 2026 14:32:05 UTC`).
+4. **Automatic Shell Completion on Daemon Boot:** Automatically install completion to `/etc/profile.d/sanalu.sh` (so it works out of the box on root shells without manual commands) along with standard completion directories.
 
 ## Technical Clarification: Zero 3rd Party APIs / Zero Internet
 
@@ -14,12 +15,6 @@
 - Each lookup is a pure in-memory **binary search** (`binary_search_by`) on 32-bit integers (`u32`).
 - Execution time is **~20–50 nanoseconds** in RAM.
 - It works 100% offline with zero internet access, zero DNS queries, and zero external APIs.
-
-## Why Shell Completion Failed on the Server
-
-1. **Root Shells in Debian/Ubuntu:** Default Debian/Ubuntu `/root/.bashrc` leaves bash-completion commented out (`#if [ -f /etc/bash_completion ] ...`).
-2. **Missing Universal `/etc/profile.d/`:** Files in `/etc/profile.d/*.sh` are automatically sourced by all shells on login regardless of `.bashrc` settings.
-3. **No Explicit Install Feedback:** `sanalu completions` previously only dumped raw text to stdout without installing or providing activation instructions.
 
 ## Global Constraints
 
@@ -57,24 +52,35 @@
 
 ---
 
-### Task 3: Universal Shell Completion Installation & Diagnostics
+### Task 3: Human-Readable Timestamps (`DD-MMM-YYYY` Format)
 
 **Files:**
-- Modify: `src/cli.rs`
-- Modify: `src/main.rs`
+- Modify: `src/ipc/handlers.rs`
+- Test: `tests/ipc_test.rs`
+
+- [ ] **Step 1: Write unit test for civil date/time formatting (e.g. `21 Sept 2026 14:32:05 UTC`)**
+- [ ] **Step 2: Run test to verify it fails**
+- [ ] **Step 3: Implement zero-dependency `format_datetime` and `format_date` and update all CLI outputs (`format_status`, `format_check`, `format_ban_list`)**
+- [ ] **Step 4: Run test to verify it passes**
+
+---
+
+### Task 4: Automatic Universal Shell Completion on Daemon Start
+
+**Files:**
 - Modify: `src/daemon.rs`
 - Modify: `src/uninstall.rs`
-- Test: `tests/cli_test.rs`
+- Test: `tests/daemon_test.rs`
 
-- [ ] **Step 1: Write test for completion installation targets**
+- [ ] **Step 1: Write test verifying `bootstrap_files` writes to `/etc/profile.d/` and completion dirs**
 - [ ] **Step 2: Run test to verify it fails**
-- [ ] **Step 3: Implement universal completion installer (`/etc/profile.d/sanalu.sh`, `/etc/bash_completion.d/sanalu`, `/usr/share/bash-completion/completions/sanalu`, Zsh, Fish) and CLI `sanalu completions install`**
+- [ ] **Step 3: Update `bootstrap_files` to write to `/etc/profile.d/sanalu.sh`, `/etc/bash_completion.d/sanalu`, Zsh, and Fish vendor directories automatically**
 - [ ] **Step 4: Update `src/uninstall.rs` to clean up all installed completion files**
 - [ ] **Step 5: Run test to verify it passes**
 
 ---
 
-### Task 4: Comprehensive Verification
+### Task 5: Comprehensive Verification
 
 - [ ] **Step 1: Check formatting** (`rtk cargo fmt --all -- --check`)
 - [ ] **Step 2: Check clippy** (`rtk cargo clippy --all-targets -- -D warnings`)
