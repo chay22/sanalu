@@ -174,3 +174,57 @@ fn test_loopback_and_private_ips_automatically_allowed() {
         assert_eq!(action, PipelineAction::Allow);
     }
 }
+
+#[test]
+fn test_threat_pipeline_builds_from_store() {
+    let temp_dir = tempfile::tempdir().unwrap();
+    let db_path = temp_dir.path().join("pipeline_store.redb");
+    let store = sanalu::storage::RedbStore::open(&db_path).unwrap();
+
+    let mut cfg = sanalu::config::AppConfig::default();
+    cfg.general.whitelist = vec!["198.51.100.5".into()];
+    cfg.asn_rules.blocked_asns = vec![13335];
+    store.sync_from_config(&cfg).unwrap();
+
+    let pipeline = sanalu::engine::build_pipeline_from_config(&cfg, &store).unwrap();
+
+    let action = pipeline.evaluate(
+        "198.51.100.5".parse().unwrap(),
+        None,
+        "Mozilla/5.0",
+        "GET",
+        "/",
+    );
+    assert_eq!(action, sanalu::intelligence::PipelineAction::Allow);
+
+    let meta = sanalu::geo::IpMetadata {
+        asn: 13335,
+        country: *b"US",
+        as_org: "CLOUDFLARE".into(),
+    };
+    let blocked_action = pipeline.evaluate(
+        "198.51.100.99".parse().unwrap(),
+        Some(&meta),
+        "Mozilla/5.0",
+        "GET",
+        "/",
+    );
+    assert!(matches!(blocked_action, sanalu::intelligence::PipelineAction::Ban { .. }));
+
+    store.set_asn_restricted(64496, true).unwrap();
+    let direct_pipeline = sanalu::engine::build_pipeline_from_store(&store, &[]).unwrap();
+    let restricted_meta = sanalu::geo::IpMetadata {
+        asn: 64496,
+        country: *b"CN",
+        as_org: "RESTRICTED".into(),
+    };
+    let restricted_action = direct_pipeline.evaluate(
+        "198.51.100.99".parse().unwrap(),
+        Some(&restricted_meta),
+        "Mozilla/5.0",
+        "GET",
+        "/",
+    );
+    assert!(matches!(restricted_action, sanalu::intelligence::PipelineAction::Ban { .. }));
+}
+

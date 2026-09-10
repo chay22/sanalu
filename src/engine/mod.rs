@@ -5,7 +5,7 @@ pub mod replay;
 pub mod watcher;
 
 pub use escalation::{BanRecord, EscalationEngine};
-pub use pipeline::build_pipeline_from_config;
+pub use pipeline::{build_pipeline_from_config, build_pipeline_from_store};
 pub use policy::{
     get_effective_allowed_regions, get_effective_blocked_asns, get_effective_blocked_categories,
 };

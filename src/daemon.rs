@@ -10,8 +10,8 @@ use std::sync::Arc;
 pub use crate::discovery::is_root;
 
 pub use crate::engine::{
-    build_pipeline_from_config, get_effective_allowed_regions, get_effective_blocked_asns,
-    get_effective_blocked_categories, replay_log_file,
+    build_pipeline_from_config, build_pipeline_from_store, get_effective_allowed_regions,
+    get_effective_blocked_asns, get_effective_blocked_categories, replay_log_file,
 };
 
 fn ensure_data_dir(db_path: &Path) {
@@ -30,10 +30,10 @@ fn ensure_data_dir(db_path: &Path) {
 fn sync_asn_fallback(
     firewall: &NftablesBackend,
     geo_db: &crate::geo::IpLookupDb,
-    effective_asns: &[u32],
+    blocked_asns: &[u32],
 ) {
     let mut asn_cidrs = Vec::new();
-    for &asn in effective_asns {
+    for &asn in blocked_asns {
         asn_cidrs.extend(geo_db.cidrs_for_asn(asn));
     }
     if !asn_cidrs.is_empty() {
@@ -72,11 +72,11 @@ pub async fn run_daemon(config_path: &Path, dry_run_cli: bool) -> Result<(), San
         crate::geo::IpLookupDb::empty()
     });
 
-    let effective_asns = get_effective_blocked_asns(&config, &store);
-    sync_asn_fallback(&firewall, &geo_db, &effective_asns);
+    let blocked_asns = store.list_blocked_asns().unwrap_or_default();
+    sync_asn_fallback(&firewall, &geo_db, &blocked_asns);
 
     let cf_tx =
-        CloudflareSyncWorker::start_if_enabled(&config, store.clone(), effective_asns, dry_run)
+        CloudflareSyncWorker::start_if_enabled(&config, store.clone(), blocked_asns, dry_run)
             .await?;
 
     let pipeline = Arc::new(build_pipeline_from_config(&config, &store)?);

@@ -1,23 +1,15 @@
 use crate::config::AppConfig;
-use crate::engine::policy::{
-    get_effective_allowed_regions, get_effective_blocked_asns, get_effective_blocked_categories,
-};
 use crate::error::SanaluError;
 use crate::intelligence::{BotCategory, ThreatPipeline};
 use crate::storage::RedbStore;
 use std::collections::HashSet;
 use std::net::IpAddr;
 
-pub fn build_pipeline_from_config(
-    config: &AppConfig,
+pub fn build_pipeline_from_store(
     store: &RedbStore,
+    allowed_endpoints: &[String],
 ) -> Result<ThreatPipeline, SanaluError> {
     let mut whitelisted_ips = HashSet::new();
-    for entry in &config.general.whitelist {
-        if let Ok(ip) = entry.parse::<IpAddr>() {
-            whitelisted_ips.insert(ip);
-        }
-    }
     if let Ok(db_whitelist) = store.list_whitelist() {
         for entry in db_whitelist {
             if let Ok(ip) = entry.parse::<IpAddr>() {
@@ -37,20 +29,25 @@ pub fn build_pipeline_from_config(
         }
     }
 
-    let blocked_asns: HashSet<u32> = get_effective_blocked_asns(config, store)
+    let blocked_asns: HashSet<u32> = store
+        .list_blocked_asns()
+        .unwrap_or_default()
+        .into_iter()
+        .collect();
+    let restricted_asns: HashSet<u32> = store
+        .list_restricted_asns()
+        .unwrap_or_default()
+        .into_iter()
+        .collect();
+    let allowed_regions: HashSet<String> = store
+        .list_allowed_regions()
+        .unwrap_or_default()
         .into_iter()
         .collect();
 
-    let mut restricted_asns = HashSet::new();
-    for &asn in &config.asn_rules.restricted_asns {
-        restricted_asns.insert(asn);
-    }
-
-    let allowed_regions: HashSet<String> = get_effective_allowed_regions(config, store)
-        .into_iter()
-        .collect();
-
-    let blocked_categories: HashSet<BotCategory> = get_effective_blocked_categories(config, store)
+    let blocked_categories: HashSet<BotCategory> = store
+        .list_blocked_categories()
+        .unwrap_or_default()
         .into_iter()
         .filter_map(|c| BotCategory::from_str_name(&c))
         .collect();
@@ -62,6 +59,15 @@ pub fn build_pipeline_from_config(
         restricted_asns,
         allowed_regions,
         blocked_categories,
-        &config.nginx.allowed_endpoints,
+        allowed_endpoints,
     )
 }
+
+pub fn build_pipeline_from_config(
+    config: &AppConfig,
+    store: &RedbStore,
+) -> Result<ThreatPipeline, SanaluError> {
+    let _ = store.sync_from_config(config);
+    build_pipeline_from_store(store, &config.nginx.allowed_endpoints)
+}
+
