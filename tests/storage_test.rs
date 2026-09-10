@@ -157,3 +157,48 @@ fn test_redb_runtime_policies() {
             .contains(&"JP".to_string())
     );
 }
+
+#[test]
+fn test_redb_sync_from_config_and_restricted_asns() {
+    let temp_dir = tempfile::tempdir().unwrap();
+    let db_path = temp_dir.path().join("sync_test.redb");
+    let store = RedbStore::open(&db_path).unwrap();
+
+    let mut cfg = sanalu::config::AppConfig::default();
+    cfg.general.whitelist = vec!["127.0.0.1".into(), "10.0.0.0/8".into()];
+    cfg.bots.blocked_categories = vec!["security_testing".into(), "bad_scraper".into()];
+    cfg.asn_rules.blocked_asns = vec![13335, 15169];
+    cfg.asn_rules.restricted_asns = vec![64496];
+    cfg.asn_rules.allowed_regions = vec!["ID".into(), "SG".into()];
+
+    store.sync_from_config(&cfg).unwrap();
+
+    let wl = store.list_whitelist().unwrap();
+    assert_eq!(wl.len(), 2);
+    assert!(wl.contains(&"127.0.0.1".to_string()));
+    assert!(wl.contains(&"10.0.0.0/8".to_string()));
+
+    let cats = store.list_blocked_categories().unwrap();
+    assert_eq!(cats.len(), 2);
+    assert!(cats.contains(&"security_testing".to_string()));
+    assert!(cats.contains(&"bad_scraper".to_string()));
+
+    let blocked_asns = store.list_blocked_asns().unwrap();
+    assert_eq!(blocked_asns.len(), 2);
+    assert!(blocked_asns.contains(&13335));
+    assert!(blocked_asns.contains(&15169));
+
+    let restricted_asns = store.list_restricted_asns().unwrap();
+    assert_eq!(restricted_asns.len(), 1);
+    assert!(restricted_asns.contains(&64496));
+
+    let regions = store.list_allowed_regions().unwrap();
+    assert_eq!(regions.len(), 2);
+    assert!(regions.contains(&"ID".to_string()));
+    assert!(regions.contains(&"SG".to_string()));
+
+    assert!(store.is_asn_restricted(64496).unwrap());
+    store.set_asn_restricted(64496, false).unwrap();
+    assert!(!store.is_asn_restricted(64496).unwrap());
+    assert!(store.list_restricted_asns().unwrap().is_empty());
+}

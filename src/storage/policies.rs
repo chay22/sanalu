@@ -1,7 +1,7 @@
 use super::cidr::parse_cidr;
 use super::db::{
     RedbStore, TABLE_ALLOWED_REGIONS, TABLE_BLOCKED_ASNS, TABLE_CATEGORIES, TABLE_CLOUDFLARE,
-    TABLE_WHITELIST,
+    TABLE_RESTRICTED_ASNS, TABLE_WHITELIST,
 };
 use crate::error::SanaluError;
 use redb::ReadableTable;
@@ -179,5 +179,72 @@ impl RedbStore {
         } else {
             Ok(None)
         }
+    }
+
+    pub fn set_asn_restricted(&self, asn: u32, restricted: bool) -> Result<(), SanaluError> {
+        let write_txn = self.db.begin_write()?;
+        {
+            let mut table = write_txn.open_table(TABLE_RESTRICTED_ASNS)?;
+            if restricted {
+                table.insert(asn, ())?;
+            } else {
+                table.remove(asn)?;
+            }
+        }
+        write_txn.commit()?;
+        Ok(())
+    }
+
+    pub fn is_asn_restricted(&self, asn: u32) -> Result<bool, SanaluError> {
+        let read_txn = self.db.begin_read()?;
+        let table = read_txn.open_table(TABLE_RESTRICTED_ASNS)?;
+        Ok(table.get(asn)?.is_some())
+    }
+
+    pub fn list_restricted_asns(&self) -> Result<Vec<u32>, SanaluError> {
+        let read_txn = self.db.begin_read()?;
+        let table = read_txn.open_table(TABLE_RESTRICTED_ASNS)?;
+        let mut results = Vec::new();
+        for item in table.iter()? {
+            let (asn, _) = item?;
+            results.push(asn.value());
+        }
+        Ok(results)
+    }
+
+    pub fn sync_from_config(&self, config: &crate::config::AppConfig) -> Result<(), SanaluError> {
+        let now_secs = SystemTime::now()
+            .duration_since(SystemTime::UNIX_EPOCH)
+            .unwrap_or_default()
+            .as_secs();
+        let write_txn = self.db.begin_write()?;
+        {
+            let mut wl = write_txn.open_table(TABLE_WHITELIST)?;
+            for entry in &config.general.whitelist {
+                if wl.get(entry.as_str())?.is_none() {
+                    wl.insert(entry.as_str(), now_secs)?;
+                }
+            }
+            let mut cats = write_txn.open_table(TABLE_CATEGORIES)?;
+            for cat in &config.bots.blocked_categories {
+                if cats.get(cat.as_str())?.is_none() {
+                    cats.insert(cat.as_str(), true)?;
+                }
+            }
+            let mut asns = write_txn.open_table(TABLE_BLOCKED_ASNS)?;
+            for &asn in &config.asn_rules.blocked_asns {
+                asns.insert(asn, ())?;
+            }
+            let mut rasns = write_txn.open_table(TABLE_RESTRICTED_ASNS)?;
+            for &asn in &config.asn_rules.restricted_asns {
+                rasns.insert(asn, ())?;
+            }
+            let mut regs = write_txn.open_table(TABLE_ALLOWED_REGIONS)?;
+            for reg in &config.asn_rules.allowed_regions {
+                regs.insert(reg.as_str(), ())?;
+            }
+        }
+        write_txn.commit()?;
+        Ok(())
     }
 }
