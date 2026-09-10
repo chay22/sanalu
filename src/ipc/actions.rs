@@ -1,4 +1,4 @@
-use crate::cli::{
+use super::protocol::{
     AsnCommands, CategoryCommands, CloudflareCommands, RegionCommands, WhitelistCommands,
 };
 use crate::cloudflare::{CloudflareClient, CloudflareRuleBudget};

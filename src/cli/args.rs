@@ -93,37 +93,6 @@ pub enum BanCommands {
     },
 }
 
-#[derive(Subcommand, Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
-pub enum CloudflareCommands {
-    Status,
-    List,
-    Sync,
-}
-
-#[derive(Subcommand, Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
-pub enum WhitelistCommands {
-    Add { entry: String },
-    Remove { entry: String },
-    List,
-}
-
-#[derive(Subcommand, Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
-pub enum CategoryCommands {
-    Block { name: String },
-    Unblock { name: String },
-    List,
-}
-
-#[derive(Subcommand, Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
-pub enum AsnCommands {
-    Block { asn: u32 },
-    Unblock { asn: u32 },
-    List,
-}
-
-#[derive(Subcommand, Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
-pub enum RegionCommands {
-    Allow { code: String },
-    Disallow { code: String },
-    List,
-}
+pub use crate::ipc::protocol::{
+    AsnCommands, CategoryCommands, CloudflareCommands, RegionCommands, WhitelistCommands,
+};
