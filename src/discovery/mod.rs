@@ -1,10 +1,13 @@
+pub mod crawler;
 pub mod nginx;
 pub mod os;
 pub mod ssh;
 
 pub use nginx::{
-    DiscoveredNginxLog, NginxFieldToken, NginxLogFormatKind, classify_format_body,
-    discover_nginx_logs_in_dir, parse_nginx_access_logs, parse_nginx_config_for_formats,
+    DiscoveredNginxLog, NginxCrawlerResult, NginxFieldToken, NginxLogFormatKind,
+    classify_format_body, crawl_nginx_config_tree, discover_nginx_logs_in_dir,
+    find_active_nginx_conf, find_active_nginx_conf_with_paths, parse_nginx_access_logs,
+    parse_nginx_config_for_formats,
 };
 pub use os::{CompletionPaths, OsInfo, detect_completion_paths, is_root};
 pub use ssh::{SshLogSource, detect_ssh_source};
@@ -19,50 +22,26 @@ pub struct DiscoveredEnvironment {
 }
 
 pub fn discover_environment() -> DiscoveredEnvironment {
-    discover_environment_with_paths(Path::new("/etc/nginx"), Path::new("/var/log/nginx"))
+    let active_conf = find_active_nginx_conf();
+    discover_environment_with_paths(&active_conf, Path::new("/var/log/nginx"))
 }
 
 pub fn discover_environment_with_paths(
     nginx_conf_dir: &Path,
     nginx_log_dir: &Path,
 ) -> DiscoveredEnvironment {
-    let mut discovered_logs = Vec::new();
-    let mut discovered_errors = Vec::new();
-
-    let conf_path = nginx_conf_dir.join("nginx.conf");
-    let formats = if conf_path.exists() {
-        let content = std::fs::read_to_string(&conf_path).unwrap_or_default();
-        let parsed_formats = parse_nginx_config_for_formats(&content);
-        let parsed_logs = parse_nginx_access_logs(&content, &parsed_formats);
-        discovered_logs.extend(parsed_logs);
-        parsed_formats
+    let conf_path = if nginx_conf_dir.is_file() {
+        nginx_conf_dir.to_path_buf()
     } else {
-        std::collections::HashMap::new()
+        nginx_conf_dir.join("nginx.conf")
     };
 
-    let (fs_access_logs, fs_error_logs) = discover_nginx_logs_in_dir(nginx_log_dir);
-    discovered_errors.extend(fs_error_logs);
-
-    for access_path in fs_access_logs {
-        if !discovered_logs.iter().any(|d| d.path == access_path) {
-            let format_kind = formats
-                .get("main")
-                .or_else(|| formats.get("combined"))
-                .cloned()
-                .unwrap_or(NginxLogFormatKind::Combined);
-
-            discovered_logs.push(DiscoveredNginxLog {
-                path: access_path,
-                format_kind,
-            });
-        }
-    }
-
+    let result = crawl_nginx_config_tree(&conf_path, nginx_log_dir);
     let ssh_source = detect_ssh_source();
 
     DiscoveredEnvironment {
-        nginx_logs: discovered_logs,
-        nginx_error_logs: discovered_errors,
+        nginx_logs: result.access_logs,
+        nginx_error_logs: result.error_logs,
         ssh_source,
     }
 }

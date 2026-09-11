@@ -1,3 +1,5 @@
+pub use super::crawler::{NginxCrawlerResult, crawl_nginx_config_tree};
+use super::crawler::{extract_directives, parse_log_format_directive};
 use std::collections::HashMap;
 use std::fs;
 use std::path::{Path, PathBuf};
@@ -169,22 +171,10 @@ pub struct DiscoveredNginxLog {
 
 pub fn parse_nginx_config_for_formats(config_content: &str) -> HashMap<String, NginxLogFormatKind> {
     let mut map = HashMap::new();
-    for line in config_content.lines() {
-        let trimmed = line.trim();
-        if let Some(rest) = trimmed.strip_prefix("log_format") {
-            let rest = rest.trim();
-            let mut parts = rest.splitn(2, |c: char| c.is_whitespace() || c == '\'' || c == '"');
-            let name = parts.next().unwrap_or("").trim();
-            let format_body = parts
-                .next()
-                .unwrap_or("")
-                .trim()
-                .trim_matches('\'')
-                .trim_matches('"')
-                .trim_matches(';');
-            if !name.is_empty() {
-                map.insert(name.to_string(), classify_format_body(format_body));
-            }
+    let directives = extract_directives(config_content);
+    for directive in directives {
+        if let Some((name, body)) = parse_log_format_directive(&directive) {
+            map.insert(name, classify_format_body(&body));
         }
     }
     map
