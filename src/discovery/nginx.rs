@@ -1,5 +1,6 @@
 pub use super::crawler::{NginxCrawlerResult, crawl_nginx_config_tree};
 use super::crawler::{extract_directives, parse_log_format_directive};
+use crate::parser::CompiledLogFormat;
 use std::collections::HashMap;
 use std::fs;
 use std::path::{Path, PathBuf};
@@ -167,6 +168,50 @@ pub enum NginxFieldToken {
 pub struct DiscoveredNginxLog {
     pub path: PathBuf,
     pub format_kind: NginxLogFormatKind,
+}
+
+impl NginxLogFormatKind {
+    pub fn to_compiled(&self) -> CompiledLogFormat {
+        match self {
+            Self::Combined => CompiledLogFormat::compile(
+                "$remote_addr - $remote_user [$time_local] \"$request\" $status $body_bytes_sent \"$http_referer\" \"$http_user_agent\"",
+            ),
+            Self::CloudflareProxy => CompiledLogFormat::compile(
+                "$http_cf_connecting_ip - $remote_user [$time_local] \"$request\" $status $body_bytes_sent \"$http_referer\" \"$http_user_agent\"",
+            ),
+            Self::Json => CompiledLogFormat::Json,
+            Self::Custom(tokens) => {
+                let mut segments = Vec::new();
+                for (i, token) in tokens.iter().enumerate() {
+                    if i > 0 {
+                        segments.push(crate::parser::FormatSegment::Literal(" ".to_string()));
+                    }
+                    let var = match token {
+                        NginxFieldToken::RemoteAddr => crate::parser::LogVariable::RemoteAddr,
+                        NginxFieldToken::CfConnectingIp => {
+                            crate::parser::LogVariable::CfConnectingIp
+                        }
+                        NginxFieldToken::XForwardedFor => crate::parser::LogVariable::XForwardedFor,
+                        NginxFieldToken::TimeLocal => crate::parser::LogVariable::TimeLocal,
+                        NginxFieldToken::Request => crate::parser::LogVariable::Request,
+                        NginxFieldToken::Status => crate::parser::LogVariable::Status,
+                        NginxFieldToken::BytesSent => crate::parser::LogVariable::BodyBytesSent,
+                        NginxFieldToken::HttpReferer => crate::parser::LogVariable::HttpReferer,
+                        NginxFieldToken::HttpUserAgent => crate::parser::LogVariable::HttpUserAgent,
+                        NginxFieldToken::Other(s) => crate::parser::LogVariable::Ignored(s.clone()),
+                    };
+                    segments.push(crate::parser::FormatSegment::Variable(var));
+                }
+                CompiledLogFormat::Delimited(segments)
+            }
+        }
+    }
+}
+
+impl DiscoveredNginxLog {
+    pub fn to_compiled(&self) -> CompiledLogFormat {
+        self.format_kind.to_compiled()
+    }
 }
 
 pub fn parse_nginx_config_for_formats(config_content: &str) -> HashMap<String, NginxLogFormatKind> {

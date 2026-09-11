@@ -1,4 +1,7 @@
-use sanalu::parser::{parse_nginx_combined_line, parse_nginx_error_line, parse_nginx_json_line};
+use sanalu::parser::{
+    CompiledLogFormat, LogVariable, parse_nginx_combined_line, parse_nginx_error_line,
+    parse_nginx_json_line,
+};
 use std::net::IpAddr;
 
 #[test]
@@ -41,4 +44,130 @@ fn test_parse_corrupted_binary_line() {
     assert!(parse_nginx_combined_line(&binary_garbage).is_none());
     assert!(parse_nginx_json_line(&binary_garbage).is_none());
     assert!(parse_nginx_error_line(&binary_garbage).is_none());
+}
+
+#[test]
+fn test_compiled_cloudflare_format_parsing() {
+    let fmt_str = "$http_cf_connecting_ip - $remote_user [$time_local] \"$request\" $status $body_bytes_sent \"$http_referer\" \"$http_user_agent\"";
+    let compiled = CompiledLogFormat::compile(fmt_str);
+
+    let line = "198.51.100.25 - user [12/Sep/2026:06:00:00 +0000] \"GET /admin/db.sql HTTP/1.1\" 404 512 \"https://google.com\" \"Mozilla/5.0\"";
+    let entry = compiled.parse_line(line).expect("parse custom line");
+
+    assert_eq!(entry.client_ip, "198.51.100.25".parse::<IpAddr>().unwrap());
+    assert_eq!(entry.method, "GET");
+    assert_eq!(entry.path, "/admin/db.sql");
+    assert_eq!(entry.status, 404);
+    assert_eq!(entry.referer, "https://google.com");
+    assert_eq!(entry.user_agent, "Mozilla/5.0");
+}
+
+#[test]
+fn test_compiled_vhost_prefixed_format() {
+    let fmt_str = "$host $remote_addr [$time_local] $request_method $request_uri $status";
+    let compiled = CompiledLogFormat::compile(fmt_str);
+
+    let line = "api.example.com 203.0.113.88 [12/Sep/2026:06:00:00 +0000] POST /.env 403";
+    let entry = compiled.parse_line(line).expect("parse vhost line");
+
+    assert_eq!(entry.client_ip, "203.0.113.88".parse::<IpAddr>().unwrap());
+    assert_eq!(entry.host, Some("api.example.com"));
+    assert_eq!(entry.method, "POST");
+    assert_eq!(entry.path, "/.env");
+    assert_eq!(entry.status, 403);
+}
+
+#[test]
+fn test_compiled_xff_first_public_ip() {
+    let fmt_str = "[$time_local] \"$request\" $status \"$http_x_forwarded_for\"";
+    let compiled = CompiledLogFormat::compile(fmt_str);
+
+    let line = "[12/Sep/2026:06:00:00 +0000] \"GET /index.html HTTP/1.1\" 200 \"10.0.0.1, 198.51.100.42, 172.16.0.5\"";
+    let entry = compiled.parse_line(line).expect("parse xff line");
+
+    assert_eq!(entry.client_ip, "198.51.100.42".parse::<IpAddr>().unwrap());
+    assert_eq!(entry.status, 200);
+}
+
+#[test]
+fn test_compiled_json_format_parsing() {
+    let fmt_str = "{\n  \"client\": \"$remote_addr\",\n  \"status\": $status\n}";
+    let compiled = CompiledLogFormat::compile(fmt_str);
+    assert_eq!(compiled, CompiledLogFormat::Json);
+
+    let line = r#"{"client": "203.0.113.55", "method": "GET", "uri": "/api", "status": 200}"#;
+    let entry = compiled.parse_line(line).expect("parse json line");
+    assert_eq!(entry.client_ip, "203.0.113.55".parse::<IpAddr>().unwrap());
+    assert_eq!(entry.method, "GET");
+    assert_eq!(entry.path, "/api");
+    assert_eq!(entry.status, 200);
+}
+
+#[test]
+fn test_compiled_mismatched_and_corrupt_lines() {
+    let fmt_str = "$host $remote_addr [$time_local] $request_method $request_uri $status";
+    let compiled = CompiledLogFormat::compile(fmt_str);
+
+    let corrupt = "\x00\x01\x02 random garbage without spaces";
+    assert!(compiled.parse_line(corrupt).is_none());
+
+    let missing_fields = "api.example.com 203.0.113.88";
+    assert!(compiled.parse_line(missing_fields).is_none());
+}
+
+#[test]
+fn test_compiled_ip_priority_cf_over_all() {
+    let fmt_str = "$http_cf_connecting_ip $http_x_forwarded_for $remote_addr [$time_local] \"$request\" $status";
+    let compiled = CompiledLogFormat::compile(fmt_str);
+
+    let line =
+        "198.51.100.99 198.51.100.50 127.0.0.1 [12/Sep/2026:06:00:00 +0000] \"GET / HTTP/1.1\" 200";
+    let entry = compiled.parse_line(line).expect("parse line");
+    assert_eq!(entry.client_ip, "198.51.100.99".parse::<IpAddr>().unwrap());
+}
+
+#[test]
+fn test_discovered_log_to_compiled() {
+    use sanalu::discovery::nginx::{DiscoveredNginxLog, NginxLogFormatKind};
+    use std::path::PathBuf;
+
+    assert_eq!(
+        NginxLogFormatKind::Json.to_compiled(),
+        CompiledLogFormat::Json
+    );
+    let combined = NginxLogFormatKind::Combined.to_compiled();
+    assert!(matches!(combined, CompiledLogFormat::Delimited(_)));
+
+    let discovered = DiscoveredNginxLog {
+        path: PathBuf::from("/var/log/nginx/access.log"),
+        format_kind: NginxLogFormatKind::Combined,
+    };
+    assert_eq!(discovered.to_compiled(), combined);
+}
+
+#[test]
+fn test_compiled_segments_structure() {
+    let fmt_str = "$remote_addr [$time_local]";
+    let compiled = CompiledLogFormat::compile(fmt_str);
+    match compiled {
+        CompiledLogFormat::Delimited(segments) => {
+            assert_eq!(
+                segments[0],
+                sanalu::parser::FormatSegment::Variable(LogVariable::RemoteAddr)
+            );
+            assert_eq!(
+                segments[1],
+                sanalu::parser::FormatSegment::Literal(" [".to_string())
+            );
+            assert_eq!(
+                segments[2],
+                sanalu::parser::FormatSegment::Variable(LogVariable::TimeLocal)
+            );
+            assert_eq!(
+                segments[3],
+                sanalu::parser::FormatSegment::Literal("]".to_string())
+            );
+        }
+        CompiledLogFormat::Json => panic!("expected delimited"),
+    }
 }

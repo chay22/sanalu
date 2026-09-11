@@ -8,6 +8,368 @@ pub struct NginxLogEntry<'a> {
     pub status: u16,
     pub referer: &'a str,
     pub user_agent: &'a str,
+    pub host: Option<&'a str>,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum CompiledLogFormat {
+    Delimited(Vec<FormatSegment>),
+    Json,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum FormatSegment {
+    Variable(LogVariable),
+    Literal(String),
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum LogVariable {
+    RemoteAddr,
+    CfConnectingIp,
+    XForwardedFor,
+    TimeLocal,
+    Request,
+    RequestMethod,
+    RequestUri,
+    Status,
+    BodyBytesSent,
+    HttpReferer,
+    HttpUserAgent,
+    Host,
+    Ignored(String),
+}
+
+impl CompiledLogFormat {
+    pub fn compile(format_body: &str) -> Self {
+        let trimmed = format_body.trim();
+        let stripped = if trimmed.starts_with('\'') && trimmed.ends_with('\'') && trimmed.len() >= 2
+        {
+            trimmed[1..trimmed.len() - 1].trim()
+        } else {
+            trimmed
+        };
+        if stripped.starts_with('{') && stripped.ends_with('}') {
+            return Self::Json;
+        }
+        let segments = parse_format_segments(stripped);
+        Self::Delimited(segments)
+    }
+
+    pub fn parse_line<'a>(&self, line: &'a str) -> Option<NginxLogEntry<'a>> {
+        match self {
+            Self::Delimited(segments) => parse_delimited_line(segments, line),
+            Self::Json => parse_json_log_line(line),
+        }
+    }
+}
+
+fn parse_format_segments(body: &str) -> Vec<FormatSegment> {
+    let mut segments = Vec::new();
+    let mut current_lit = String::new();
+    let mut chars = body.chars().peekable();
+
+    while let Some(&ch) = chars.peek() {
+        if ch == '$' {
+            chars.next();
+            if chars.peek() == Some(&'$') {
+                chars.next();
+                current_lit.push('$');
+                continue;
+            }
+            if !current_lit.is_empty() {
+                segments.push(FormatSegment::Literal(std::mem::take(&mut current_lit)));
+            }
+            let mut var_name = String::new();
+            if chars.peek() == Some(&'{') {
+                chars.next();
+                while let Some(&vch) = chars.peek() {
+                    chars.next();
+                    if vch == '}' {
+                        break;
+                    }
+                    var_name.push(vch);
+                }
+            } else {
+                while let Some(&vch) = chars.peek() {
+                    if vch.is_ascii_alphanumeric() || vch == '_' {
+                        chars.next();
+                        var_name.push(vch);
+                    } else {
+                        break;
+                    }
+                }
+            }
+            if var_name.is_empty() {
+                current_lit.push('$');
+            } else {
+                segments.push(FormatSegment::Variable(map_variable_name(&var_name)));
+            }
+        } else {
+            chars.next();
+            current_lit.push(ch);
+        }
+    }
+
+    if !current_lit.is_empty() {
+        segments.push(FormatSegment::Literal(current_lit));
+    }
+
+    segments
+}
+
+fn map_variable_name(name: &str) -> LogVariable {
+    match name {
+        "remote_addr" => LogVariable::RemoteAddr,
+        "http_cf_connecting_ip" => LogVariable::CfConnectingIp,
+        "http_x_forwarded_for" => LogVariable::XForwardedFor,
+        "time_local" => LogVariable::TimeLocal,
+        "request" => LogVariable::Request,
+        "request_method" => LogVariable::RequestMethod,
+        "request_uri" | "uri" => LogVariable::RequestUri,
+        "status" => LogVariable::Status,
+        "body_bytes_sent" | "bytes_sent" => LogVariable::BodyBytesSent,
+        "http_referer" => LogVariable::HttpReferer,
+        "http_user_agent" => LogVariable::HttpUserAgent,
+        "host" | "http_host" => LogVariable::Host,
+        other => LogVariable::Ignored(other.to_string()),
+    }
+}
+
+#[derive(Default)]
+struct ParsedFields<'a> {
+    cf_ip: Option<&'a str>,
+    xff: Option<&'a str>,
+    remote_addr: Option<&'a str>,
+    method: Option<&'a str>,
+    path: Option<&'a str>,
+    request: Option<&'a str>,
+    status: Option<u16>,
+    referer: &'a str,
+    user_agent: &'a str,
+    host: Option<&'a str>,
+}
+
+fn assign_variable_field<'a>(var: &LogVariable, slice: &'a str, fields: &mut ParsedFields<'a>) {
+    match var {
+        LogVariable::CfConnectingIp => fields.cf_ip = Some(slice.trim()),
+        LogVariable::XForwardedFor => fields.xff = Some(slice.trim()),
+        LogVariable::RemoteAddr => fields.remote_addr = Some(slice.trim()),
+        LogVariable::RequestMethod => fields.method = Some(slice.trim()),
+        LogVariable::RequestUri => fields.path = Some(slice.trim()),
+        LogVariable::Request => fields.request = Some(slice.trim()),
+        LogVariable::Status => fields.status = slice.trim().parse::<u16>().ok(),
+        LogVariable::HttpReferer => fields.referer = slice,
+        LogVariable::HttpUserAgent => fields.user_agent = slice,
+        LogVariable::Host => {
+            let h = slice.trim();
+            fields.host = if h.is_empty() || h == "-" {
+                None
+            } else {
+                Some(h)
+            };
+        }
+        LogVariable::TimeLocal | LogVariable::BodyBytesSent | LogVariable::Ignored(_) => {}
+    }
+}
+
+fn parse_delimited_line<'a>(
+    segments: &[FormatSegment],
+    line: &'a str,
+) -> Option<NginxLogEntry<'a>> {
+    let clean_line = line.trim_end_matches(['\r', '\n']);
+    if clean_line.trim().is_empty() {
+        return None;
+    }
+
+    let mut fields = ParsedFields::default();
+    let mut cursor = 0;
+    let mut pending_var: Option<&LogVariable> = None;
+
+    for seg in segments {
+        match seg {
+            FormatSegment::Literal(lit) => {
+                if let Some(var) = pending_var.take() {
+                    let rest = clean_line.get(cursor..)?;
+                    let offset = rest.find(lit.as_str())?;
+                    let val_slice = &rest[..offset];
+                    assign_variable_field(var, val_slice, &mut fields);
+                    cursor += offset + lit.len();
+                } else {
+                    let rest = clean_line.get(cursor..)?;
+                    if !rest.starts_with(lit.as_str()) {
+                        return None;
+                    }
+                    cursor += lit.len();
+                }
+            }
+            FormatSegment::Variable(var) => {
+                if let Some(prev_var) = pending_var.take() {
+                    let rest = clean_line.get(cursor..)?;
+                    let offset = rest.find(' ').unwrap_or(rest.len());
+                    assign_variable_field(prev_var, &rest[..offset], &mut fields);
+                    cursor += offset;
+                }
+                pending_var = Some(var);
+            }
+        }
+    }
+
+    if let Some(var) = pending_var.take() {
+        let val_slice = clean_line.get(cursor..)?;
+        assign_variable_field(var, val_slice, &mut fields);
+    }
+
+    let client_ip = resolve_client_ip(fields.cf_ip, fields.xff, fields.remote_addr)?;
+    let (method, path) = extract_request_parts(fields.method, fields.path, fields.request);
+
+    Some(NginxLogEntry {
+        client_ip,
+        method,
+        path,
+        status: fields.status.unwrap_or(200),
+        referer: fields.referer,
+        user_agent: fields.user_agent,
+        host: fields.host,
+    })
+}
+
+fn extract_request_parts<'a>(
+    method_opt: Option<&'a str>,
+    path_opt: Option<&'a str>,
+    request_opt: Option<&'a str>,
+) -> (&'a str, &'a str) {
+    let (mut m, mut p) = ("GET", "/");
+    if let Some(req) = request_opt {
+        let mut parts = req.split_whitespace();
+        if let Some(method) = parts.next() {
+            m = method;
+        }
+        if let Some(path) = parts.next() {
+            p = path;
+        }
+    }
+    if let Some(method) = method_opt {
+        m = method.trim();
+    }
+    if let Some(path) = path_opt {
+        p = path.trim();
+    }
+    (m, p)
+}
+
+fn resolve_client_ip(cf: Option<&str>, xff: Option<&str>, remote: Option<&str>) -> Option<IpAddr> {
+    if let Some(cf_str) = cf {
+        let clean = cf_str.split(',').next().unwrap_or("").trim();
+        if let Ok(ip) = clean.parse::<IpAddr>() {
+            return Some(ip);
+        }
+    }
+
+    if let Some(xff_str) = xff {
+        let mut first_valid = None;
+        for part in xff_str.split(',') {
+            let clean = part.trim();
+            if let Ok(ip) = clean.parse::<IpAddr>() {
+                if !crate::is_loopback_or_private(ip) {
+                    return Some(ip);
+                }
+                if first_valid.is_none() {
+                    first_valid = Some(ip);
+                }
+            }
+        }
+        if let Some(rem_str) = remote {
+            if let Ok(ip) = rem_str.trim().parse::<IpAddr>() {
+                return Some(ip);
+            }
+        }
+        if let Some(ip) = first_valid {
+            return Some(ip);
+        }
+    } else if let Some(rem_str) = remote {
+        if let Ok(ip) = rem_str.trim().parse::<IpAddr>() {
+            return Some(ip);
+        }
+    }
+
+    None
+}
+
+#[derive(serde::Deserialize)]
+struct JsonLogRecord<'a> {
+    client: Option<&'a str>,
+    client_ip: Option<&'a str>,
+    remote_addr: Option<&'a str>,
+    ip: Option<&'a str>,
+    http_cf_connecting_ip: Option<&'a str>,
+    http_x_forwarded_for: Option<&'a str>,
+    method: Option<&'a str>,
+    request_method: Option<&'a str>,
+    uri: Option<&'a str>,
+    path: Option<&'a str>,
+    request_uri: Option<&'a str>,
+    request: Option<&'a str>,
+    status: Option<serde_json::Value>,
+    referer: Option<&'a str>,
+    http_referer: Option<&'a str>,
+    ua: Option<&'a str>,
+    user_agent: Option<&'a str>,
+    http_user_agent: Option<&'a str>,
+    host: Option<&'a str>,
+    http_host: Option<&'a str>,
+}
+
+fn parse_json_log_line<'a>(line: &'a str) -> Option<NginxLogEntry<'a>> {
+    let trimmed = line.trim();
+    if !trimmed.starts_with('{') {
+        return None;
+    }
+
+    let rec: JsonLogRecord<'a> = serde_json::from_str(trimmed).ok()?;
+
+    let cf = rec.http_cf_connecting_ip;
+    let xff = rec.http_x_forwarded_for;
+    let remote = rec.client.or(rec.client_ip).or(rec.remote_addr).or(rec.ip);
+
+    let client_ip = resolve_client_ip(cf, xff, remote)?;
+
+    let (method, path) = extract_request_parts(
+        rec.method.or(rec.request_method),
+        rec.uri.or(rec.path).or(rec.request_uri),
+        rec.request,
+    );
+
+    let status = match rec.status {
+        Some(serde_json::Value::Number(n)) => n.as_u64().map(|v| v as u16).unwrap_or(200),
+        Some(serde_json::Value::String(s)) => s.parse::<u16>().unwrap_or(200),
+        _ => 200,
+    };
+
+    let referer = rec.referer.or(rec.http_referer).unwrap_or("");
+    let user_agent = rec
+        .ua
+        .or(rec.user_agent)
+        .or(rec.http_user_agent)
+        .unwrap_or("");
+    let host = rec.host.or(rec.http_host).and_then(|h| {
+        let t = h.trim();
+        if t.is_empty() || t == "-" {
+            None
+        } else {
+            Some(t)
+        }
+    });
+
+    Some(NginxLogEntry {
+        client_ip,
+        method,
+        path,
+        status,
+        referer,
+        user_agent,
+        host,
+    })
 }
 
 pub fn parse_nginx_combined_line<'a>(line: &'a str) -> Option<NginxLogEntry<'a>> {
@@ -49,6 +411,7 @@ pub fn parse_nginx_combined_line<'a>(line: &'a str) -> Option<NginxLogEntry<'a>>
         status,
         referer,
         user_agent,
+        host: None,
     })
 }
 
