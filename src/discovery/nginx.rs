@@ -1,6 +1,143 @@
 use std::collections::HashMap;
+use std::fs;
 use std::path::{Path, PathBuf};
 use walkdir::WalkDir;
+
+pub fn find_active_nginx_conf() -> PathBuf {
+    let proc_root = Path::new("/proc");
+    let systemd_dirs = [
+        Path::new("/etc/systemd/system"),
+        Path::new("/lib/systemd/system"),
+        Path::new("/usr/lib/systemd/system"),
+    ];
+    let fallbacks = [
+        Path::new("/etc/nginx/nginx.conf"),
+        Path::new("/usr/local/nginx/conf/nginx.conf"),
+        Path::new("/opt/nginx/conf/nginx.conf"),
+    ];
+    find_active_nginx_conf_with_paths(proc_root, &systemd_dirs, &fallbacks)
+}
+
+pub fn find_active_nginx_conf_with_paths(
+    proc_root: &Path,
+    systemd_dirs: &[&Path],
+    fallbacks: &[&Path],
+) -> PathBuf {
+    if let Some(conf) = find_conf_from_proc(proc_root) {
+        return conf;
+    }
+    if let Some(conf) = find_conf_from_systemd(systemd_dirs) {
+        return conf;
+    }
+    for fb in fallbacks {
+        if fb.exists() {
+            return fb.to_path_buf();
+        }
+    }
+    fallbacks
+        .first()
+        .map(|p| p.to_path_buf())
+        .unwrap_or_else(|| PathBuf::from("/etc/nginx/nginx.conf"))
+}
+
+fn find_conf_from_proc(proc_root: &Path) -> Option<PathBuf> {
+    let entries = fs::read_dir(proc_root).ok()?;
+    for entry in entries.flatten() {
+        let cmdline_path = entry.path().join("cmdline");
+        if let Ok(bytes) = fs::read(&cmdline_path) {
+            if let Some(conf) = parse_cmdline_bytes(&bytes) {
+                return Some(conf);
+            }
+        }
+    }
+    None
+}
+
+fn parse_cmdline_bytes(bytes: &[u8]) -> Option<PathBuf> {
+    if bytes.is_empty() {
+        return None;
+    }
+    let s = String::from_utf8_lossy(bytes);
+    let tokens: Vec<&str> = s.split('\0').filter(|t| !t.is_empty()).collect();
+    if tokens.is_empty() || !tokens[0].contains("nginx") {
+        return None;
+    }
+    for (i, token) in tokens.iter().enumerate() {
+        if *token == "-c" {
+            if let Some(next) = tokens.get(i + 1) {
+                let p = next.trim();
+                if !p.is_empty() {
+                    return Some(PathBuf::from(p));
+                }
+            }
+        } else if let Some(stripped) = token.strip_prefix("-c") {
+            let p = stripped.trim();
+            if !p.is_empty() {
+                return Some(PathBuf::from(p));
+            }
+        }
+    }
+    None
+}
+
+fn find_conf_from_systemd(systemd_dirs: &[&Path]) -> Option<PathBuf> {
+    for path in systemd_dirs {
+        if path.is_file() {
+            if let Some(conf) = parse_systemd_file(path) {
+                return Some(conf);
+            }
+        } else if path.is_dir() {
+            let direct = path.join("nginx.service");
+            if direct.is_file() {
+                if let Some(conf) = parse_systemd_file(&direct) {
+                    return Some(conf);
+                }
+            }
+            let wanted = path.join("multi-user.target.wants").join("nginx.service");
+            if wanted.is_file() {
+                if let Some(conf) = parse_systemd_file(&wanted) {
+                    return Some(conf);
+                }
+            }
+        }
+    }
+    None
+}
+
+fn parse_systemd_file(path: &Path) -> Option<PathBuf> {
+    let content = fs::read_to_string(path).ok()?;
+    for line in content.lines() {
+        if let Some(conf) = parse_exec_start_line(line) {
+            return Some(conf);
+        }
+    }
+    None
+}
+
+fn parse_exec_start_line(line: &str) -> Option<PathBuf> {
+    let trimmed = line.trim();
+    let rest = trimmed
+        .strip_prefix("ExecStart")?
+        .trim_start()
+        .strip_prefix('=')?;
+    let words: Vec<&str> = rest.split_whitespace().collect();
+    for (i, word) in words.iter().enumerate() {
+        if *word == "-c" {
+            if let Some(next) = words.get(i + 1) {
+                let clean = next.trim_matches('"').trim_matches('\'').trim();
+                if !clean.is_empty() {
+                    return Some(PathBuf::from(clean));
+                }
+            }
+        } else if let Some(stripped) = word.strip_prefix("-c") {
+            let clean = stripped.trim_matches('"').trim_matches('\'').trim();
+            if !clean.is_empty() {
+                return Some(PathBuf::from(clean));
+            }
+        }
+    }
+    None
+}
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum NginxLogFormatKind {
