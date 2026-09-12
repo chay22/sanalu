@@ -147,7 +147,7 @@ pub enum NginxLogFormatKind {
     Combined,
     CloudflareProxy,
     Json,
-    Custom(Vec<NginxFieldToken>),
+    Custom(String),
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -180,36 +180,8 @@ impl NginxLogFormatKind {
                 "$http_cf_connecting_ip - $remote_user [$time_local] \"$request\" $status $body_bytes_sent \"$http_referer\" \"$http_user_agent\"",
             ),
             Self::Json => CompiledLogFormat::Json,
-            Self::Custom(tokens) => custom_tokens_to_compiled(tokens),
+            Self::Custom(raw) => CompiledLogFormat::compile(raw),
         }
-    }
-}
-
-fn custom_tokens_to_compiled(tokens: &[NginxFieldToken]) -> CompiledLogFormat {
-    let mut segments = Vec::new();
-    for (i, token) in tokens.iter().enumerate() {
-        if i > 0 {
-            segments.push(crate::parser::FormatSegment::Literal(" ".to_string()));
-        }
-        segments.push(crate::parser::FormatSegment::Variable(
-            token_to_log_variable(token),
-        ));
-    }
-    CompiledLogFormat::Delimited(segments)
-}
-
-fn token_to_log_variable(token: &NginxFieldToken) -> crate::parser::LogVariable {
-    match token {
-        NginxFieldToken::RemoteAddr => crate::parser::LogVariable::RemoteAddr,
-        NginxFieldToken::CfConnectingIp => crate::parser::LogVariable::CfConnectingIp,
-        NginxFieldToken::XForwardedFor => crate::parser::LogVariable::XForwardedFor,
-        NginxFieldToken::TimeLocal => crate::parser::LogVariable::TimeLocal,
-        NginxFieldToken::Request => crate::parser::LogVariable::Request,
-        NginxFieldToken::Status => crate::parser::LogVariable::Status,
-        NginxFieldToken::BytesSent => crate::parser::LogVariable::BodyBytesSent,
-        NginxFieldToken::HttpReferer => crate::parser::LogVariable::HttpReferer,
-        NginxFieldToken::HttpUserAgent => crate::parser::LogVariable::HttpUserAgent,
-        NginxFieldToken::Other(s) => crate::parser::LogVariable::Ignored(s.clone()),
     }
 }
 
@@ -235,36 +207,27 @@ pub fn classify_format_body(body: &str) -> NginxLogFormatKind {
     if trimmed.starts_with('{') && trimmed.ends_with('}') {
         return NginxLogFormatKind::Json;
     }
-    if trimmed.contains("$http_cf_connecting_ip") {
-        return NginxLogFormatKind::CloudflareProxy;
-    }
-    if trimmed.contains("$remote_addr")
-        && trimmed.contains("$request")
-        && trimmed.contains("$status")
+    if !trimmed.contains("$host")
+        && !trimmed.contains("$request_method")
+        && !trimmed.contains("$request_uri")
     {
-        return NginxLogFormatKind::Combined;
+        if trimmed.contains("$http_cf_connecting_ip")
+            && trimmed.contains("$remote_user")
+            && trimmed.contains("$request")
+            && trimmed.contains("$status")
+        {
+            return NginxLogFormatKind::CloudflareProxy;
+        }
+        if trimmed.contains("$remote_addr")
+            && trimmed.contains("$remote_user")
+            && trimmed.contains("$request")
+            && trimmed.contains("$status")
+            && trimmed.contains("$body_bytes_sent")
+        {
+            return NginxLogFormatKind::Combined;
+        }
     }
-    let tokens = trimmed
-        .split_whitespace()
-        .map(word_to_field_token)
-        .collect();
-    NginxLogFormatKind::Custom(tokens)
-}
-
-fn word_to_field_token(word: &str) -> NginxFieldToken {
-    let clean = word.trim_matches('"').trim_matches('[').trim_matches(']');
-    match clean {
-        "$remote_addr" => NginxFieldToken::RemoteAddr,
-        "$http_cf_connecting_ip" => NginxFieldToken::CfConnectingIp,
-        "$http_x_forwarded_for" => NginxFieldToken::XForwardedFor,
-        "$time_local" => NginxFieldToken::TimeLocal,
-        "$request" => NginxFieldToken::Request,
-        "$status" => NginxFieldToken::Status,
-        "$body_bytes_sent" => NginxFieldToken::BytesSent,
-        "$http_referer" => NginxFieldToken::HttpReferer,
-        "$http_user_agent" => NginxFieldToken::HttpUserAgent,
-        other => NginxFieldToken::Other(other.to_string()),
-    }
+    NginxLogFormatKind::Custom(trimmed.to_string())
 }
 
 pub fn parse_nginx_access_logs(

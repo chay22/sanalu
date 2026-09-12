@@ -171,3 +171,29 @@ fn test_compiled_segments_structure() {
         CompiledLogFormat::Json => panic!("expected delimited"),
     }
 }
+
+#[test]
+fn test_custom_format_delimiters_preserved_and_parsed() {
+    use sanalu::discovery::nginx::{DiscoveredNginxLog, NginxLogFormatKind};
+    use std::path::PathBuf;
+
+    let raw_format =
+        "$remote_addr [$time_local] \"$request\" $status \"$http_referer\" \"$http_user_agent\"";
+    let custom_kind = NginxLogFormatKind::Custom(raw_format.to_string());
+    let discovered = DiscoveredNginxLog {
+        path: PathBuf::from("/var/log/nginx/custom.log"),
+        format_kind: custom_kind,
+    };
+    let compiled = discovered.to_compiled();
+
+    let line = "192.0.2.10 [12/Sep/2026:12:00:00 +0000] \"POST /api/login HTTP/1.1\" 200 \"https://example.com/\" \"Mozilla/5.0\"";
+    let entry = compiled
+        .parse_line(line)
+        .expect("must parse custom log line with delimiters");
+    assert_eq!(entry.client_ip, "192.0.2.10".parse::<IpAddr>().unwrap());
+    assert_eq!(entry.method, "POST");
+    assert_eq!(entry.path, "/api/login");
+    assert_eq!(entry.status, 200);
+    assert_eq!(entry.referer, "https://example.com/");
+    assert_eq!(entry.user_agent, "Mozilla/5.0");
+}

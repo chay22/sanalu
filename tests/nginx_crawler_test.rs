@@ -149,3 +149,56 @@ fn test_crawl_unconfigured_orphan_sniffing() {
 
     assert!(result.error_logs.iter().any(|l| l == &err_log));
 }
+
+#[test]
+fn test_crawl_custom_format_delimiters_preserved() {
+    let dir = tempdir().unwrap();
+    let conf_dir = dir.path().join("nginx");
+    let log_dir = dir.path().join("logs");
+    fs::create_dir_all(&conf_dir).unwrap();
+    fs::create_dir_all(&log_dir).unwrap();
+
+    let root_conf = conf_dir.join("nginx.conf");
+    let mut root_file = File::create(&root_conf).unwrap();
+    let access_log_path = log_dir.join("vhost_custom.access.log");
+    root_file
+        .write_all(
+            format!(
+                "http {{\n\
+                log_format custom_vhost '$host $remote_addr [$time_local] \"$request\" $status';\n\
+                access_log {} custom_vhost;\n\
+            }}\n",
+                access_log_path.to_str().unwrap()
+            )
+            .as_bytes(),
+        )
+        .unwrap();
+
+    let result = crawl_nginx_config_tree(&root_conf, &log_dir);
+    let log = result
+        .access_logs
+        .iter()
+        .find(|l| l.path == access_log_path)
+        .expect("must find custom log");
+    match &log.format_kind {
+        NginxLogFormatKind::Custom(raw) => {
+            assert!(raw.contains("[$time_local]"));
+            assert!(raw.contains("\"$request\""));
+        }
+        _ => panic!("expected custom format kind"),
+    }
+    let compiled = log.to_compiled();
+    let line =
+        "example.com 198.51.100.22 [12/Sep/2026:08:00:00 +0000] \"GET /api/v1 HTTP/1.1\" 200";
+    let entry = compiled
+        .parse_line(line)
+        .expect("must parse with delimiters");
+    assert_eq!(entry.host, Some("example.com"));
+    assert_eq!(
+        entry.client_ip,
+        "198.51.100.22".parse::<std::net::IpAddr>().unwrap()
+    );
+    assert_eq!(entry.method, "GET");
+    assert_eq!(entry.path, "/api/v1");
+    assert_eq!(entry.status, 200);
+}

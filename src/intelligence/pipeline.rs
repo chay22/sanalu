@@ -81,10 +81,10 @@ impl ThreatPipeline {
         ip: IpAddr,
         asn_info: Option<&IpMetadata>,
         user_agent: &str,
-        _method: &str,
+        method: &str,
         uri: &str,
-        _status: u16,
-        _referer: &str,
+        status: u16,
+        referer: &str,
     ) -> PipelineAction {
         if crate::is_loopback_or_private(ip) || self.whitelisted_ips.contains(&ip) {
             return PipelineAction::Allow;
@@ -118,12 +118,37 @@ impl ThreatPipeline {
             };
         }
 
+        let upper_method = method.to_ascii_uppercase();
+        if matches!(
+            upper_method.as_str(),
+            "PROPFIND" | "DEBUG" | "SEARCH" | "TRACK" | "TRACE"
+        ) {
+            return PipelineAction::Ban {
+                reason: format!("scanner_method:{}", upper_method),
+                permanent: false,
+            };
+        }
+
+        if let Some(pat) = inspect_referer(referer) {
+            return PipelineAction::Ban {
+                reason: format!("harmful_referer:{}", pat),
+                permanent: true,
+            };
+        }
+
         match self.probe_matcher.inspect(uri) {
             ProbeResult::AllowedEndpoint => PipelineAction::Allow,
-            ProbeResult::HarmfulPattern(pat) => PipelineAction::Ban {
-                reason: format!("harmful_probe:{}", pat),
-                permanent: true,
-            },
+            ProbeResult::HarmfulPattern(pat) => {
+                let reason = if status >= 400 {
+                    format!("harmful_probe:{}:{}", pat, status)
+                } else {
+                    format!("harmful_probe:{}", pat)
+                };
+                PipelineAction::Ban {
+                    reason,
+                    permanent: true,
+                }
+            }
             ProbeResult::Clean => PipelineAction::Allow,
         }
     }
@@ -138,4 +163,21 @@ impl ThreatPipeline {
     ) -> PipelineAction {
         self.evaluate_request(ip, asn_info, user_agent, method, uri, 200, "")
     }
+}
+
+fn inspect_referer(referer: &str) -> Option<&'static str> {
+    if referer.is_empty() {
+        return None;
+    }
+    let lower = referer.to_ascii_lowercase();
+    if lower.contains("${jndi:") {
+        return Some("${jndi:");
+    }
+    if lower.contains("<script") {
+        return Some("<script");
+    }
+    if lower.contains("..\\") || lower.contains("../") || lower.contains("%2e%2e") {
+        return Some("path_traversal");
+    }
+    None
 }
