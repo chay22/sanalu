@@ -1,7 +1,7 @@
 use crate::firewall::{FirewallBackend, NftablesBackend};
 use crate::geo::IpLookupDb;
 use crate::intelligence::{PipelineAction, ThreatPipeline};
-use crate::parser::parse_nginx_combined_line;
+use crate::parser::CompiledLogFormat;
 use crate::storage::{RedbStore, StoredBanRecord};
 use std::fs::File;
 use std::io::{BufRead, BufReader, Seek, SeekFrom};
@@ -13,6 +13,7 @@ use tokio::task::JoinHandle;
 
 pub fn spawn_nginx_watcher(
     path: PathBuf,
+    format: CompiledLogFormat,
     pipe: Arc<ThreatPipeline>,
     fw: Arc<NftablesBackend>,
     st: Arc<RedbStore>,
@@ -35,14 +36,16 @@ pub fn spawn_nginx_watcher(
                 }
                 Ok(_) => {
                     let trimmed = line.trim();
-                    if let Some(entry) = parse_nginx_combined_line(trimmed) {
+                    if let Some(entry) = format.parse_line(trimmed) {
                         let asn_info = geo.lookup(entry.client_ip);
-                        let action = pipe.evaluate(
+                        let action = pipe.evaluate_request(
                             entry.client_ip,
                             asn_info.as_ref(),
                             entry.user_agent,
                             entry.method,
                             entry.path,
+                            entry.status,
+                            entry.referer,
                         );
                         if let PipelineAction::Ban { reason, permanent } = action {
                             let timeout = if permanent { None } else { Some(3600) };

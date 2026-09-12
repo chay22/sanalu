@@ -103,6 +103,7 @@ pub async fn run_daemon(config_path: &Path, dry_run_cli: bool) -> Result<(), San
     for log in &env_disc.nginx_logs {
         crate::engine::spawn_nginx_watcher(
             log.path.clone(),
+            log.format_kind.to_compiled(),
             pipeline.clone(),
             firewall.clone(),
             store.clone(),

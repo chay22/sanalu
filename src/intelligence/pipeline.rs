@@ -75,13 +75,16 @@ impl ThreatPipeline {
         }
     }
 
-    pub fn evaluate(
+    #[allow(clippy::too_many_arguments)]
+    pub fn evaluate_request(
         &self,
         ip: IpAddr,
         asn_info: Option<&IpMetadata>,
         user_agent: &str,
         _method: &str,
         uri: &str,
+        _status: u16,
+        _referer: &str,
     ) -> PipelineAction {
         if crate::is_loopback_or_private(ip) || self.whitelisted_ips.contains(&ip) {
             return PipelineAction::Allow;
@@ -123,5 +126,16 @@ impl ThreatPipeline {
             },
             ProbeResult::Clean => PipelineAction::Allow,
         }
+    }
+
+    pub fn evaluate(
+        &self,
+        ip: IpAddr,
+        asn_info: Option<&IpMetadata>,
+        user_agent: &str,
+        method: &str,
+        uri: &str,
+    ) -> PipelineAction {
+        self.evaluate_request(ip, asn_info, user_agent, method, uri, 200, "")
     }
 }

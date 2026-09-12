@@ -233,3 +233,30 @@ fn test_threat_pipeline_builds_from_store() {
         sanalu::intelligence::PipelineAction::Ban { .. }
     ));
 }
+
+#[test]
+fn test_probe_with_status_code_filtering() {
+    let pipeline = ThreatPipeline::new_test_instance();
+
+    let action_404 = pipeline.evaluate_request(
+        "203.0.113.10".parse().unwrap(),
+        None,
+        "Mozilla/5.0",
+        "GET",
+        "/.aws/credentials",
+        404,
+        "",
+    );
+    assert!(matches!(action_404, PipelineAction::Ban { .. }));
+
+    let action_200 = pipeline.evaluate_request(
+        "203.0.113.10".parse().unwrap(),
+        None,
+        "Mozilla/5.0",
+        "GET",
+        "/.well-known/acme-challenge/test",
+        200,
+        "",
+    );
+    assert!(matches!(action_200, PipelineAction::Allow));
+}
