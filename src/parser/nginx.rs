@@ -80,26 +80,7 @@ fn parse_format_segments(body: &str) -> Vec<FormatSegment> {
             if !current_lit.is_empty() {
                 segments.push(FormatSegment::Literal(std::mem::take(&mut current_lit)));
             }
-            let mut var_name = String::new();
-            if chars.peek() == Some(&'{') {
-                chars.next();
-                while let Some(&vch) = chars.peek() {
-                    chars.next();
-                    if vch == '}' {
-                        break;
-                    }
-                    var_name.push(vch);
-                }
-            } else {
-                while let Some(&vch) = chars.peek() {
-                    if vch.is_ascii_alphanumeric() || vch == '_' {
-                        chars.next();
-                        var_name.push(vch);
-                    } else {
-                        break;
-                    }
-                }
-            }
+            let var_name = extract_var_name(&mut chars);
             if var_name.is_empty() {
                 current_lit.push('$');
             } else {
@@ -118,21 +99,61 @@ fn parse_format_segments(body: &str) -> Vec<FormatSegment> {
     segments
 }
 
+fn extract_var_name(chars: &mut std::iter::Peekable<std::str::Chars>) -> String {
+    let mut var_name = String::new();
+    if chars.peek() == Some(&'{') {
+        chars.next();
+        while let Some(&vch) = chars.peek() {
+            chars.next();
+            if vch == '}' {
+                break;
+            }
+            var_name.push(vch);
+        }
+    } else {
+        while let Some(&vch) = chars.peek() {
+            if vch.is_ascii_alphanumeric() || vch == '_' {
+                chars.next();
+                var_name.push(vch);
+            } else {
+                break;
+            }
+        }
+    }
+    var_name
+}
+
 fn map_variable_name(name: &str) -> LogVariable {
+    if let Some(var) = map_network_variable(name) {
+        return var;
+    }
+    if let Some(var) = map_http_variable(name) {
+        return var;
+    }
+    LogVariable::Ignored(name.to_string())
+}
+
+fn map_network_variable(name: &str) -> Option<LogVariable> {
     match name {
-        "remote_addr" => LogVariable::RemoteAddr,
-        "http_cf_connecting_ip" => LogVariable::CfConnectingIp,
-        "http_x_forwarded_for" => LogVariable::XForwardedFor,
-        "time_local" => LogVariable::TimeLocal,
-        "request" => LogVariable::Request,
-        "request_method" => LogVariable::RequestMethod,
-        "request_uri" | "uri" => LogVariable::RequestUri,
-        "status" => LogVariable::Status,
-        "body_bytes_sent" | "bytes_sent" => LogVariable::BodyBytesSent,
-        "http_referer" => LogVariable::HttpReferer,
-        "http_user_agent" => LogVariable::HttpUserAgent,
-        "host" | "http_host" => LogVariable::Host,
-        other => LogVariable::Ignored(other.to_string()),
+        "remote_addr" => Some(LogVariable::RemoteAddr),
+        "http_cf_connecting_ip" => Some(LogVariable::CfConnectingIp),
+        "http_x_forwarded_for" => Some(LogVariable::XForwardedFor),
+        "time_local" => Some(LogVariable::TimeLocal),
+        _ => None,
+    }
+}
+
+fn map_http_variable(name: &str) -> Option<LogVariable> {
+    match name {
+        "request" => Some(LogVariable::Request),
+        "request_method" => Some(LogVariable::RequestMethod),
+        "request_uri" | "uri" => Some(LogVariable::RequestUri),
+        "status" => Some(LogVariable::Status),
+        "body_bytes_sent" | "bytes_sent" => Some(LogVariable::BodyBytesSent),
+        "http_referer" => Some(LogVariable::HttpReferer),
+        "http_user_agent" => Some(LogVariable::HttpUserAgent),
+        "host" | "http_host" => Some(LogVariable::Host),
+        _ => None,
     }
 }
 
@@ -151,13 +172,48 @@ struct ParsedFields<'a> {
 }
 
 fn assign_variable_field<'a>(var: &LogVariable, slice: &'a str, fields: &mut ParsedFields<'a>) {
+    if assign_ip_or_request_field(var, slice, fields) {
+        return;
+    }
+    assign_meta_field(var, slice, fields);
+}
+
+fn assign_ip_or_request_field<'a>(
+    var: &LogVariable,
+    slice: &'a str,
+    fields: &mut ParsedFields<'a>,
+) -> bool {
     match var {
-        LogVariable::CfConnectingIp => fields.cf_ip = Some(slice.trim()),
-        LogVariable::XForwardedFor => fields.xff = Some(slice.trim()),
-        LogVariable::RemoteAddr => fields.remote_addr = Some(slice.trim()),
-        LogVariable::RequestMethod => fields.method = Some(slice.trim()),
-        LogVariable::RequestUri => fields.path = Some(slice.trim()),
-        LogVariable::Request => fields.request = Some(slice.trim()),
+        LogVariable::CfConnectingIp => {
+            fields.cf_ip = Some(slice.trim());
+            true
+        }
+        LogVariable::XForwardedFor => {
+            fields.xff = Some(slice.trim());
+            true
+        }
+        LogVariable::RemoteAddr => {
+            fields.remote_addr = Some(slice.trim());
+            true
+        }
+        LogVariable::RequestMethod => {
+            fields.method = Some(slice.trim());
+            true
+        }
+        LogVariable::RequestUri => {
+            fields.path = Some(slice.trim());
+            true
+        }
+        LogVariable::Request => {
+            fields.request = Some(slice.trim());
+            true
+        }
+        _ => false,
+    }
+}
+
+fn assign_meta_field<'a>(var: &LogVariable, slice: &'a str, fields: &mut ParsedFields<'a>) {
+    match var {
         LogVariable::Status => fields.status = slice.trim().parse::<u16>().ok(),
         LogVariable::HttpReferer => fields.referer = slice,
         LogVariable::HttpUserAgent => fields.user_agent = slice,
@@ -169,7 +225,7 @@ fn assign_variable_field<'a>(var: &LogVariable, slice: &'a str, fields: &mut Par
                 Some(h)
             };
         }
-        LogVariable::TimeLocal | LogVariable::BodyBytesSent | LogVariable::Ignored(_) => {}
+        _ => {}
     }
 }
 
@@ -260,31 +316,12 @@ fn extract_request_parts<'a>(
 
 fn resolve_client_ip(cf: Option<&str>, xff: Option<&str>, remote: Option<&str>) -> Option<IpAddr> {
     if let Some(cf_str) = cf {
-        let clean = cf_str.split(',').next().unwrap_or("").trim();
-        if let Ok(ip) = clean.parse::<IpAddr>() {
+        if let Some(ip) = parse_first_comma_ip(cf_str) {
             return Some(ip);
         }
     }
-
     if let Some(xff_str) = xff {
-        let mut first_valid = None;
-        for part in xff_str.split(',') {
-            let clean = part.trim();
-            if let Ok(ip) = clean.parse::<IpAddr>() {
-                if !crate::is_loopback_or_private(ip) {
-                    return Some(ip);
-                }
-                if first_valid.is_none() {
-                    first_valid = Some(ip);
-                }
-            }
-        }
-        if let Some(rem_str) = remote {
-            if let Ok(ip) = rem_str.trim().parse::<IpAddr>() {
-                return Some(ip);
-            }
-        }
-        if let Some(ip) = first_valid {
+        if let Some(ip) = parse_xff_ip(xff_str, remote) {
             return Some(ip);
         }
     } else if let Some(rem_str) = remote {
@@ -292,8 +329,33 @@ fn resolve_client_ip(cf: Option<&str>, xff: Option<&str>, remote: Option<&str>) 
             return Some(ip);
         }
     }
-
     None
+}
+
+fn parse_first_comma_ip(s: &str) -> Option<IpAddr> {
+    let clean = s.split(',').next().unwrap_or("").trim();
+    clean.parse::<IpAddr>().ok()
+}
+
+fn parse_xff_ip(xff_str: &str, remote: Option<&str>) -> Option<IpAddr> {
+    let mut first_valid = None;
+    for part in xff_str.split(',') {
+        let clean = part.trim();
+        if let Ok(ip) = clean.parse::<IpAddr>() {
+            if !crate::is_loopback_or_private(ip) {
+                return Some(ip);
+            }
+            if first_valid.is_none() {
+                first_valid = Some(ip);
+            }
+        }
+    }
+    if let Some(rem_str) = remote {
+        if let Ok(ip) = rem_str.trim().parse::<IpAddr>() {
+            return Some(ip);
+        }
+    }
+    first_valid
 }
 
 #[derive(serde::Deserialize)]

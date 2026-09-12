@@ -59,31 +59,45 @@ pub fn crawl_nginx_config_tree(root_conf: &Path, nginx_log_dir: &Path) -> NginxC
         }
     }
 
-    let mut access_logs: Vec<DiscoveredNginxLog> = Vec::new();
-    for (path, fmt_name_opt) in raw_access_logs {
-        if access_logs.iter().any(|l| l.path == path) {
-            continue;
-        }
-        let fmt_name = fmt_name_opt.as_deref().unwrap_or("combined");
-        let format_kind = if let Some(body) = formats.get(fmt_name) {
-            classify_format_body(body)
-        } else if fmt_name == "main" {
-            formats
-                .get("combined")
-                .map(|b| classify_format_body(b))
-                .unwrap_or(NginxLogFormatKind::Combined)
-        } else {
-            NginxLogFormatKind::Combined
-        };
-        access_logs.push(DiscoveredNginxLog { path, format_kind });
-    }
-
+    let mut access_logs = resolve_access_logs(raw_access_logs, &formats);
     discover_orphan_logs(nginx_log_dir, &formats, &mut access_logs, &mut error_logs);
 
     NginxCrawlerResult {
         formats,
         access_logs,
         error_logs,
+    }
+}
+
+fn resolve_access_logs(
+    raw: Vec<(PathBuf, Option<String>)>,
+    formats: &HashMap<String, String>,
+) -> Vec<DiscoveredNginxLog> {
+    let mut access_logs: Vec<DiscoveredNginxLog> = Vec::new();
+    for (path, fmt_name_opt) in raw {
+        if access_logs.iter().any(|l| l.path == path) {
+            continue;
+        }
+        let format_kind = determine_format_kind(fmt_name_opt.as_deref(), formats);
+        access_logs.push(DiscoveredNginxLog { path, format_kind });
+    }
+    access_logs
+}
+
+fn determine_format_kind(
+    fmt_name_opt: Option<&str>,
+    formats: &HashMap<String, String>,
+) -> NginxLogFormatKind {
+    let fmt_name = fmt_name_opt.unwrap_or("combined");
+    if let Some(body) = formats.get(fmt_name) {
+        classify_format_body(body)
+    } else if fmt_name == "main" {
+        formats
+            .get("combined")
+            .map(|b| classify_format_body(b))
+            .unwrap_or(NginxLogFormatKind::Combined)
+    } else {
+        NginxLogFormatKind::Combined
     }
 }
 
@@ -138,48 +152,9 @@ fn parse_access_log_directive(
 ) -> Option<(PathBuf, Option<String>)> {
     let rest = directive.strip_prefix("access_log")?.trim();
     let parts: Vec<&str> = rest.split_whitespace().collect();
-    if parts.is_empty() {
-        return None;
-    }
-    let target = parts[0]
-        .trim_matches(';')
-        .trim()
-        .trim_matches('\'')
-        .trim_matches('"')
-        .trim();
-    if target.is_empty()
-        || target == "off"
-        || target.starts_with("syslog:")
-        || target.starts_with("memory:")
-    {
-        return None;
-    }
-    let p = PathBuf::from(target);
-    let resolved = if p.is_relative() {
-        if nginx_log_dir.join(&p).exists() {
-            nginx_log_dir.join(&p)
-        } else {
-            conf_base_dir.join(&p)
-        }
-    } else {
-        p
-    };
-
-    let fmt = if parts.len() > 1 {
-        let candidate = parts[1].trim_matches(';').trim();
-        if candidate.starts_with("buffer=")
-            || candidate.starts_with("gzip")
-            || candidate.starts_with("flush=")
-            || candidate.starts_with("if=")
-        {
-            None
-        } else {
-            Some(candidate.to_string())
-        }
-    } else {
-        None
-    };
-
+    let target = clean_log_target(parts.first()?)?;
+    let resolved = resolve_log_path(target, conf_base_dir, nginx_log_dir);
+    let fmt = extract_log_format(&parts[1..]);
     Some((resolved, fmt))
 }
 
@@ -190,10 +165,12 @@ fn parse_error_log_directive(
 ) -> Option<PathBuf> {
     let rest = directive.strip_prefix("error_log")?.trim();
     let parts: Vec<&str> = rest.split_whitespace().collect();
-    if parts.is_empty() {
-        return None;
-    }
-    let target = parts[0]
+    let target = clean_log_target(parts.first()?)?;
+    Some(resolve_log_path(target, conf_base_dir, nginx_log_dir))
+}
+
+fn clean_log_target(raw: &str) -> Option<&str> {
+    let target = raw
         .trim_matches(';')
         .trim()
         .trim_matches('\'')
@@ -204,10 +181,15 @@ fn parse_error_log_directive(
         || target.starts_with("syslog:")
         || target.starts_with("memory:")
     {
-        return None;
+        None
+    } else {
+        Some(target)
     }
+}
+
+fn resolve_log_path(target: &str, conf_base_dir: &Path, nginx_log_dir: &Path) -> PathBuf {
     let p = PathBuf::from(target);
-    let resolved = if p.is_relative() {
+    if p.is_relative() {
         if nginx_log_dir.join(&p).exists() {
             nginx_log_dir.join(&p)
         } else {
@@ -215,8 +197,20 @@ fn parse_error_log_directive(
         }
     } else {
         p
-    };
-    Some(resolved)
+    }
+}
+
+fn extract_log_format(parts: &[&str]) -> Option<String> {
+    let candidate = parts.first()?.trim_matches(';').trim();
+    if candidate.starts_with("buffer=")
+        || candidate.starts_with("gzip")
+        || candidate.starts_with("flush=")
+        || candidate.starts_with("if=")
+    {
+        None
+    } else {
+        Some(candidate.to_string())
+    }
 }
 
 pub(crate) fn parse_log_format_directive(directive: &str) -> Option<(String, String)> {
@@ -244,104 +238,123 @@ fn parse_nginx_format_body(raw: &str) -> String {
     while let Some(&c) = chars.peek() {
         if c.is_whitespace() {
             chars.next();
-            continue;
-        }
-        if c == '\'' || c == '"' {
-            let quote = c;
-            chars.next();
-            let mut current = String::new();
-            let mut escaped = false;
-            while let Some(&ch) = chars.peek() {
-                chars.next();
-                if escaped {
-                    current.push(ch);
-                    escaped = false;
-                } else if ch == '\\' {
-                    escaped = true;
-                } else if ch == quote {
-                    break;
-                } else {
-                    current.push(ch);
-                }
-            }
-            args.push(current);
+        } else if c == '\'' || c == '"' {
+            args.push(parse_quoted_format_arg(&mut chars, c));
         } else {
-            let mut current = String::new();
-            while let Some(&ch) = chars.peek() {
-                if ch.is_whitespace() || ch == ';' {
-                    break;
-                }
-                chars.next();
-                current.push(ch);
-            }
-            if !current.is_empty() {
-                args.push(current);
+            let unquoted = parse_unquoted_format_arg(&mut chars);
+            if !unquoted.is_empty() {
+                args.push(unquoted);
             }
         }
     }
     args.concat()
 }
 
+fn parse_quoted_format_arg(
+    chars: &mut std::iter::Peekable<std::str::Chars>,
+    quote: char,
+) -> String {
+    chars.next();
+    let mut current = String::new();
+    let mut escaped = false;
+    while let Some(&ch) = chars.peek() {
+        chars.next();
+        if escaped {
+            current.push(ch);
+            escaped = false;
+        } else if ch == '\\' {
+            escaped = true;
+        } else if ch == quote {
+            break;
+        } else {
+            current.push(ch);
+        }
+    }
+    current
+}
+
+fn parse_unquoted_format_arg(chars: &mut std::iter::Peekable<std::str::Chars>) -> String {
+    let mut current = String::new();
+    while let Some(&ch) = chars.peek() {
+        if ch.is_whitespace() || ch == ';' {
+            break;
+        }
+        chars.next();
+        current.push(ch);
+    }
+    current
+}
+
+#[derive(Default)]
+struct DirectiveLexer {
+    in_single_quote: bool,
+    in_double_quote: bool,
+    in_comment: bool,
+    escaped: bool,
+}
+
+impl DirectiveLexer {
+    fn step(&mut self, ch: char, buf: &mut String, directives: &mut Vec<String>) {
+        if self.in_comment {
+            if ch == '\n' {
+                self.in_comment = false;
+            }
+            return;
+        }
+        if self.escaped {
+            buf.push(ch);
+            self.escaped = false;
+            return;
+        }
+        if ch == '\\' && (self.in_single_quote || self.in_double_quote) {
+            buf.push(ch);
+            self.escaped = true;
+            return;
+        }
+        if self.handle_quote(ch, buf) {
+            return;
+        }
+        self.handle_unquoted(ch, buf, directives);
+    }
+
+    fn handle_quote(&mut self, ch: char, buf: &mut String) -> bool {
+        if ch == '\'' && !self.in_double_quote {
+            self.in_single_quote = !self.in_single_quote;
+            buf.push(ch);
+            true
+        } else if ch == '"' && !self.in_single_quote {
+            self.in_double_quote = !self.in_double_quote;
+            buf.push(ch);
+            true
+        } else {
+            false
+        }
+    }
+
+    fn handle_unquoted(&mut self, ch: char, buf: &mut String, directives: &mut Vec<String>) {
+        if ch == '#' {
+            self.in_comment = true;
+        } else if ch == ';' {
+            let trimmed = buf.trim();
+            if !trimmed.is_empty() {
+                directives.push(trimmed.to_string());
+            }
+            buf.clear();
+        } else if ch == '{' || ch == '}' {
+            buf.clear();
+        } else {
+            buf.push(ch);
+        }
+    }
+}
+
 pub(crate) fn extract_directives(content: &str) -> Vec<String> {
     let mut directives = Vec::new();
     let mut buf = String::new();
-    let mut in_single_quote = false;
-    let mut in_double_quote = false;
-    let mut in_comment = false;
-    let mut escaped = false;
+    let mut lexer = DirectiveLexer::default();
 
     for ch in content.chars() {
-        if in_comment {
-            if ch == '\n' {
-                in_comment = false;
-            }
-            continue;
-        }
-
-        if escaped {
-            buf.push(ch);
-            escaped = false;
-            continue;
-        }
-
-        if ch == '\\' && (in_single_quote || in_double_quote) {
-            buf.push(ch);
-            escaped = true;
-            continue;
-        }
-
-        if ch == '\'' && !in_double_quote {
-            in_single_quote = !in_single_quote;
-            buf.push(ch);
-            continue;
-        }
-
-        if ch == '"' && !in_single_quote {
-            in_double_quote = !in_double_quote;
-            buf.push(ch);
-            continue;
-        }
-
-        if !in_single_quote && !in_double_quote {
-            if ch == '#' {
-                in_comment = true;
-                continue;
-            }
-            if ch == ';' {
-                let trimmed = buf.trim();
-                if !trimmed.is_empty() {
-                    directives.push(trimmed.to_string());
-                }
-                buf.clear();
-                continue;
-            }
-            if ch == '{' || ch == '}' {
-                buf.clear();
-                continue;
-            }
-        }
-
-        buf.push(ch);
+        lexer.step(ch, &mut buf, &mut directives);
     }
 
     let trimmed = buf.trim();
@@ -452,40 +465,43 @@ fn discover_orphan_logs(
         .into_iter()
         .flatten()
     {
-        let path = entry.path();
-        if !path.is_file() {
-            continue;
-        }
-        let file_name = path.file_name().and_then(|n| n.to_str()).unwrap_or("");
-        if file_name.ends_with(".gz") || file_name.ends_with(".zip") || file_name.ends_with(".tmp")
-        {
-            continue;
-        }
-
-        let is_known_error = file_name.contains("error.log")
-            || (file_name.contains("error") && file_name.ends_with(".log"));
-
-        if is_known_error {
-            if !error_logs.iter().any(|p| p == path) {
-                error_logs.push(path.to_path_buf());
-            }
-            continue;
-        }
-
-        if file_name.ends_with(".log") {
-            if is_first_line_error(path) {
-                if !error_logs.iter().any(|p| p == path) {
-                    error_logs.push(path.to_path_buf());
-                }
-            } else if !access_logs.iter().any(|l| l.path == path) {
-                let format_kind = sniff_log_format(path, formats);
-                access_logs.push(DiscoveredNginxLog {
-                    path: path.to_path_buf(),
-                    format_kind,
-                });
-            }
-        }
+        classify_orphan_file(entry.path(), formats, access_logs, error_logs);
     }
+}
+
+fn classify_orphan_file(
+    path: &Path,
+    formats: &HashMap<String, String>,
+    access_logs: &mut Vec<DiscoveredNginxLog>,
+    error_logs: &mut Vec<PathBuf>,
+) {
+    if !path.is_file() {
+        return;
+    }
+    let file_name = path.file_name().and_then(|n| n.to_str()).unwrap_or("");
+    if is_compressed_or_temp(file_name) {
+        return;
+    }
+
+    if is_known_error_log(file_name) || (file_name.ends_with(".log") && is_first_line_error(path)) {
+        if !error_logs.contains(&path.to_path_buf()) {
+            error_logs.push(path.to_path_buf());
+        }
+    } else if file_name.ends_with(".log") && !access_logs.iter().any(|l| l.path == path) {
+        let format_kind = sniff_log_format(path, formats);
+        access_logs.push(DiscoveredNginxLog {
+            path: path.to_path_buf(),
+            format_kind,
+        });
+    }
+}
+
+fn is_compressed_or_temp(name: &str) -> bool {
+    name.ends_with(".gz") || name.ends_with(".zip") || name.ends_with(".tmp")
+}
+
+fn is_known_error_log(name: &str) -> bool {
+    name.contains("error.log") || (name.contains("error") && name.ends_with(".log"))
 }
 
 fn is_first_line_error(path: &Path) -> bool {

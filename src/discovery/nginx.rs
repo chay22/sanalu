@@ -180,31 +180,36 @@ impl NginxLogFormatKind {
                 "$http_cf_connecting_ip - $remote_user [$time_local] \"$request\" $status $body_bytes_sent \"$http_referer\" \"$http_user_agent\"",
             ),
             Self::Json => CompiledLogFormat::Json,
-            Self::Custom(tokens) => {
-                let mut segments = Vec::new();
-                for (i, token) in tokens.iter().enumerate() {
-                    if i > 0 {
-                        segments.push(crate::parser::FormatSegment::Literal(" ".to_string()));
-                    }
-                    let var = match token {
-                        NginxFieldToken::RemoteAddr => crate::parser::LogVariable::RemoteAddr,
-                        NginxFieldToken::CfConnectingIp => {
-                            crate::parser::LogVariable::CfConnectingIp
-                        }
-                        NginxFieldToken::XForwardedFor => crate::parser::LogVariable::XForwardedFor,
-                        NginxFieldToken::TimeLocal => crate::parser::LogVariable::TimeLocal,
-                        NginxFieldToken::Request => crate::parser::LogVariable::Request,
-                        NginxFieldToken::Status => crate::parser::LogVariable::Status,
-                        NginxFieldToken::BytesSent => crate::parser::LogVariable::BodyBytesSent,
-                        NginxFieldToken::HttpReferer => crate::parser::LogVariable::HttpReferer,
-                        NginxFieldToken::HttpUserAgent => crate::parser::LogVariable::HttpUserAgent,
-                        NginxFieldToken::Other(s) => crate::parser::LogVariable::Ignored(s.clone()),
-                    };
-                    segments.push(crate::parser::FormatSegment::Variable(var));
-                }
-                CompiledLogFormat::Delimited(segments)
-            }
+            Self::Custom(tokens) => custom_tokens_to_compiled(tokens),
         }
+    }
+}
+
+fn custom_tokens_to_compiled(tokens: &[NginxFieldToken]) -> CompiledLogFormat {
+    let mut segments = Vec::new();
+    for (i, token) in tokens.iter().enumerate() {
+        if i > 0 {
+            segments.push(crate::parser::FormatSegment::Literal(" ".to_string()));
+        }
+        segments.push(crate::parser::FormatSegment::Variable(
+            token_to_log_variable(token),
+        ));
+    }
+    CompiledLogFormat::Delimited(segments)
+}
+
+fn token_to_log_variable(token: &NginxFieldToken) -> crate::parser::LogVariable {
+    match token {
+        NginxFieldToken::RemoteAddr => crate::parser::LogVariable::RemoteAddr,
+        NginxFieldToken::CfConnectingIp => crate::parser::LogVariable::CfConnectingIp,
+        NginxFieldToken::XForwardedFor => crate::parser::LogVariable::XForwardedFor,
+        NginxFieldToken::TimeLocal => crate::parser::LogVariable::TimeLocal,
+        NginxFieldToken::Request => crate::parser::LogVariable::Request,
+        NginxFieldToken::Status => crate::parser::LogVariable::Status,
+        NginxFieldToken::BytesSent => crate::parser::LogVariable::BodyBytesSent,
+        NginxFieldToken::HttpReferer => crate::parser::LogVariable::HttpReferer,
+        NginxFieldToken::HttpUserAgent => crate::parser::LogVariable::HttpUserAgent,
+        NginxFieldToken::Other(s) => crate::parser::LogVariable::Ignored(s.clone()),
     }
 }
 
@@ -239,23 +244,27 @@ pub fn classify_format_body(body: &str) -> NginxLogFormatKind {
     {
         return NginxLogFormatKind::Combined;
     }
-    let mut tokens = Vec::new();
-    for word in trimmed.split_whitespace() {
-        let clean = word.trim_matches('"').trim_matches('[').trim_matches(']');
-        match clean {
-            "$remote_addr" => tokens.push(NginxFieldToken::RemoteAddr),
-            "$http_cf_connecting_ip" => tokens.push(NginxFieldToken::CfConnectingIp),
-            "$http_x_forwarded_for" => tokens.push(NginxFieldToken::XForwardedFor),
-            "$time_local" => tokens.push(NginxFieldToken::TimeLocal),
-            "$request" => tokens.push(NginxFieldToken::Request),
-            "$status" => tokens.push(NginxFieldToken::Status),
-            "$body_bytes_sent" => tokens.push(NginxFieldToken::BytesSent),
-            "$http_referer" => tokens.push(NginxFieldToken::HttpReferer),
-            "$http_user_agent" => tokens.push(NginxFieldToken::HttpUserAgent),
-            other => tokens.push(NginxFieldToken::Other(other.to_string())),
-        }
-    }
+    let tokens = trimmed
+        .split_whitespace()
+        .map(word_to_field_token)
+        .collect();
     NginxLogFormatKind::Custom(tokens)
+}
+
+fn word_to_field_token(word: &str) -> NginxFieldToken {
+    let clean = word.trim_matches('"').trim_matches('[').trim_matches(']');
+    match clean {
+        "$remote_addr" => NginxFieldToken::RemoteAddr,
+        "$http_cf_connecting_ip" => NginxFieldToken::CfConnectingIp,
+        "$http_x_forwarded_for" => NginxFieldToken::XForwardedFor,
+        "$time_local" => NginxFieldToken::TimeLocal,
+        "$request" => NginxFieldToken::Request,
+        "$status" => NginxFieldToken::Status,
+        "$body_bytes_sent" => NginxFieldToken::BytesSent,
+        "$http_referer" => NginxFieldToken::HttpReferer,
+        "$http_user_agent" => NginxFieldToken::HttpUserAgent,
+        other => NginxFieldToken::Other(other.to_string()),
+    }
 }
 
 pub fn parse_nginx_access_logs(
