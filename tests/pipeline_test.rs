@@ -42,15 +42,36 @@ fn test_clean_user_agent_on_exploit_path_is_banned() {
         None,
         "Mozilla/5.0 (Windows NT 10.0; Win64; x64)",
         "GET",
-        "/.env",
+        "/%00",
     );
     match action {
         PipelineAction::Ban { reason, permanent } => {
-            assert_eq!(reason, "harmful_probe:.env");
-            assert!(permanent);
+            assert_eq!(reason, "probe:common:immediate_malicious");
+            assert!(!permanent);
         }
-        _ => panic!("Clean browser hitting .env must be permanently banned!"),
+        _ => panic!("Clean browser hitting %00 must be banned!"),
     }
+}
+
+#[test]
+fn test_banned_ip_dropped_immediately() {
+    let mut banned_ips = HashSet::new();
+    let ip: IpAddr = "198.51.100.77".parse().unwrap();
+    banned_ips.insert(ip);
+
+    let pipeline = ThreatPipeline::new(
+        HashSet::new(),
+        banned_ips,
+        HashSet::new(),
+        HashSet::new(),
+        HashSet::new(),
+        HashSet::new(),
+        &[],
+    )
+    .unwrap();
+
+    let action = pipeline.evaluate(ip, None, "Mozilla/5.0", "GET", "/");
+    assert_eq!(action, PipelineAction::DropBanned);
 }
 
 #[test]
@@ -338,40 +359,99 @@ fn test_referer_injection_attacks_are_banned() {
 }
 
 #[test]
-fn test_probe_status_differentiation() {
+fn test_immediate_malicious_uris_are_banned() {
     let pipeline = ThreatPipeline::new_test_instance();
+    let ip: IpAddr = "203.0.113.30".parse().unwrap();
 
-    let action_404 = pipeline.evaluate_request(
-        "203.0.113.25".parse().unwrap(),
-        None,
-        "Mozilla/5.0",
-        "GET",
-        "/.env",
-        404,
-        "",
-    );
-    match action_404 {
-        PipelineAction::Ban { reason, permanent } => {
-            assert_eq!(reason, "harmful_probe:.env:404");
-            assert!(permanent);
+    let action_null =
+        pipeline.evaluate_request(ip, None, "Mozilla/5.0", "GET", "/test%00", 200, "");
+    assert_eq!(
+        action_null,
+        PipelineAction::Ban {
+            reason: "probe:common:immediate_malicious".into(),
+            permanent: false,
         }
-        _ => panic!("probe on 404 must be banned"),
+    );
+
+    let action_crlf =
+        pipeline.evaluate_request(ip, None, "Mozilla/5.0", "GET", "/path%0d%0a", 200, "");
+    assert_eq!(
+        action_crlf,
+        PipelineAction::Ban {
+            reason: "probe:common:immediate_malicious".into(),
+            permanent: false,
+        }
+    );
+}
+
+#[test]
+fn test_shared_strikes_accumulate_across_probes_and_ban_on_threshold() {
+    let pipeline = ThreatPipeline::new_test_instance();
+    let ip: IpAddr = "203.0.113.40".parse().unwrap();
+
+    let act1 = pipeline.evaluate_request(ip, None, "Mozilla/5.0", "GET", "/wp-login.php", 404, "");
+    assert_eq!(act1, PipelineAction::Allow);
+
+    let act2 = pipeline.evaluate_request(ip, None, "Mozilla/5.0", "GET", "/.env", 404, "");
+    assert_eq!(act2, PipelineAction::Allow);
+
+    let act3 = pipeline.evaluate_request(ip, None, "Mozilla/5.0", "GET", "/.env", 404, "");
+    assert_eq!(
+        act3,
+        PipelineAction::Ban {
+            reason: "probe:common:shared_threshold:3".into(),
+            permanent: false,
+        }
+    );
+}
+
+#[test]
+fn test_isolated_strikes_do_not_taint_shared_pool() {
+    let pipeline = ThreatPipeline::new_test_instance();
+    let ip: IpAddr = "203.0.113.50".parse().unwrap();
+
+    for _ in 0..4 {
+        let act = pipeline.evaluate_request(ip, None, "Mozilla/5.0", "GET", "/backup.sql", 404, "");
+        assert_eq!(act, PipelineAction::Allow);
     }
 
-    let action_200 = pipeline.evaluate_request(
-        "203.0.113.25".parse().unwrap(),
-        None,
-        "Mozilla/5.0",
-        "GET",
-        "/.env",
-        200,
-        "",
-    );
-    match action_200 {
-        PipelineAction::Ban { reason, permanent } => {
-            assert_eq!(reason, "harmful_probe:.env");
-            assert!(permanent);
+    let act_shared = pipeline.evaluate_request(ip, None, "Mozilla/5.0", "GET", "/.env", 404, "");
+    assert_eq!(act_shared, PipelineAction::Allow);
+
+    let act5_iso =
+        pipeline.evaluate_request(ip, None, "Mozilla/5.0", "GET", "/backup.sql", 404, "");
+    assert_eq!(
+        act5_iso,
+        PipelineAction::Ban {
+            reason: "probe:backups:isolated_threshold:5".into(),
+            permanent: false,
         }
-        _ => panic!("probe on 200 must be banned"),
-    }
+    );
+}
+
+#[test]
+fn test_normal_request_200_is_allowed() {
+    let pipeline = ThreatPipeline::new_test_instance();
+    let ip: IpAddr = "203.0.113.60".parse().unwrap();
+
+    let act = pipeline.evaluate_request(ip, None, "Mozilla/5.0", "GET", "/index.html", 200, "");
+    assert_eq!(act, PipelineAction::Allow);
+
+    let act_env = pipeline.evaluate_request(ip, None, "Mozilla/5.0", "GET", "/.env", 200, "");
+    assert_eq!(act_env, PipelineAction::Allow);
+}
+
+#[test]
+fn test_cleanup_stale_strikes() {
+    let pipeline = ThreatPipeline::new_test_instance();
+    let ip: IpAddr = "203.0.113.70".parse().unwrap();
+
+    let act = pipeline.evaluate_request(ip, None, "Mozilla/5.0", "GET", "/.env", 404, "");
+    assert_eq!(act, PipelineAction::Allow);
+
+    let now_secs = std::time::SystemTime::now()
+        .duration_since(std::time::UNIX_EPOCH)
+        .unwrap_or_default()
+        .as_secs();
+    pipeline.cleanup_stale_strikes(now_secs + 100, 10);
 }

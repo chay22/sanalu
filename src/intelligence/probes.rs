@@ -44,11 +44,17 @@ impl ProbeMatcher {
         })
     }
 
-    pub fn inspect(&self, path: &str) -> ProbeResult {
+    pub fn is_allowed_endpoint(&self, path: &str) -> bool {
         if let Some(ref regex_set) = self.allowed_endpoints_regex {
-            if regex_set.is_match(path) {
-                return ProbeResult::AllowedEndpoint;
-            }
+            regex_set.is_match(path)
+        } else {
+            false
+        }
+    }
+
+    pub fn inspect(&self, path: &str) -> ProbeResult {
+        if self.is_allowed_endpoint(path) {
+            return ProbeResult::AllowedEndpoint;
         }
         if path.contains(".env") {
             return ProbeResult::HarmfulPattern(".env");
@@ -98,33 +104,8 @@ fn is_safe_query_method(method: &str) -> bool {
         || method.eq_ignore_ascii_case("QUERY")
 }
 
-fn inspect_stage1_pure_exploits(method: &str, path: &str, status: u16) -> Option<ThreatDecision> {
-    if path.contains("../") || path.contains("..;/") || path.contains("..\\") {
-        return Some(ThreatDecision::InstantBan(ThreatCategory::Common));
-    }
-    if path.contains("%00") || path.contains('\0') {
-        return Some(ThreatDecision::InstantBan(ThreatCategory::Common));
-    }
-    if path.ends_with("/bin/sh") || path.ends_with("/bin/bash") {
-        if is_safe_query_method(method) {
-            if status != 200 {
-                return Some(ThreatDecision::SharedStrike {
-                    category: ThreatCategory::Common,
-                    threshold: 3,
-                    window_secs: 10,
-                });
-            }
-            return Some(ThreatDecision::Pass);
-        }
-        return Some(ThreatDecision::InstantBan(ThreatCategory::Common));
-    }
-    if path.contains("mstshash") && status != 200 {
-        return Some(ThreatDecision::InstantBan(ThreatCategory::Common));
-    }
-    if (path.contains("/@fs/proc/") || path.contains("/@fs/etc/")) && status != 200 {
-        return Some(ThreatDecision::InstantBan(ThreatCategory::Common));
-    }
-    if path.contains("eval-stdin")
+fn is_php_rce_probe(path: &str) -> bool {
+    path.contains("eval-stdin")
         || path.contains("/vendor/phpunit/")
         || path.starts_with("/php-cgi")
         || path.starts_with("/cgi/php")
@@ -134,13 +115,10 @@ fn inspect_stage1_pure_exploits(method: &str, path: &str, status: u16) -> Option
         || path.contains("php://input")
         || path.contains("php://filter")
         || path.contains("pearcmd")
-    {
-        return Some(ThreatDecision::InstantBan(ThreatCategory::Php));
-    }
-    if path.contains("/_ignition/") {
-        return Some(ThreatDecision::InstantBan(ThreatCategory::Laravel));
-    }
-    if path.ends_with("/wp-asudo.php")
+}
+
+fn is_known_webshell(path: &str) -> bool {
+    path.ends_with("/wp-asudo.php")
         || path.ends_with("/wp-wlx.php")
         || path.ends_with("/wp-rrtx.php")
         || path.ends_with("/wp-fure.php")
@@ -149,10 +127,71 @@ fn inspect_stage1_pure_exploits(method: &str, path: &str, status: u16) -> Option
         || path.ends_with("/wp-gzone.php")
         || path.ends_with("/wp-ver.php")
         || path.ends_with("/wp-act.php")
-    {
+}
+
+fn is_traversal_exploit(path: &str) -> bool {
+    path.contains("../") || path.contains("..;/") || path.contains("..\\")
+}
+
+fn is_null_byte_exploit(path: &str) -> bool {
+    path.contains("%00") || path.contains('\0')
+}
+
+fn is_vite_proc_exploit(path: &str, status: u16) -> bool {
+    (path.contains("/@fs/proc/") || path.contains("/@fs/etc/")) && status != 200
+}
+
+fn inspect_shell_exploit(method: &str, path: &str, status: u16) -> Option<ThreatDecision> {
+    if !path.ends_with("/bin/sh") && !path.ends_with("/bin/bash") {
+        return None;
+    }
+    if is_safe_query_method(method) {
+        if status != 200 {
+            return Some(ThreatDecision::SharedStrike {
+                category: ThreatCategory::Common,
+                threshold: 3,
+                window_secs: 10,
+            });
+        }
+        return Some(ThreatDecision::Pass);
+    }
+    Some(ThreatDecision::InstantBan(ThreatCategory::Common))
+}
+
+fn inspect_stage1_pure_exploits(method: &str, path: &str, status: u16) -> Option<ThreatDecision> {
+    if is_traversal_exploit(path) || is_null_byte_exploit(path) {
+        return Some(ThreatDecision::InstantBan(ThreatCategory::Common));
+    }
+    if let Some(decision) = inspect_shell_exploit(method, path, status) {
+        return Some(decision);
+    }
+    if path.contains("mstshash") && status != 200 {
+        return Some(ThreatDecision::InstantBan(ThreatCategory::Common));
+    }
+    if is_vite_proc_exploit(path, status) {
+        return Some(ThreatDecision::InstantBan(ThreatCategory::Common));
+    }
+    if is_php_rce_probe(path) {
+        return Some(ThreatDecision::InstantBan(ThreatCategory::Php));
+    }
+    if path.contains("/_ignition/") {
+        return Some(ThreatDecision::InstantBan(ThreatCategory::Laravel));
+    }
+    if is_known_webshell(path) {
         return Some(ThreatDecision::InstantBan(ThreatCategory::Wordpress));
     }
     None
+}
+
+fn is_sensitive_dotfile(path: &str) -> bool {
+    path.ends_with("/.zsh_history")
+        || path.ends_with("/.bashrc")
+        || path.ends_with("/.zshrc")
+        || path.ends_with("/.netrc")
+        || path.ends_with("/.npmrc")
+        || path.ends_with("/.pypirc")
+        || path.ends_with("/.auth.json")
+        || path.ends_with("/.secrets.json")
 }
 
 fn inspect_dotfiles_vcs(method: &str, path: &str, status: u16) -> Option<ThreatDecision> {
@@ -182,15 +221,7 @@ fn inspect_dotfiles_vcs(method: &str, path: &str, status: u16) -> Option<ThreatD
         }
         return Some(ThreatDecision::InstantBan(ThreatCategory::Vcs));
     }
-    if path.ends_with("/.zsh_history")
-        || path.ends_with("/.bashrc")
-        || path.ends_with("/.zshrc")
-        || path.ends_with("/.netrc")
-        || path.ends_with("/.npmrc")
-        || path.ends_with("/.pypirc")
-        || path.ends_with("/.auth.json")
-        || path.ends_with("/.secrets.json")
-    {
+    if is_sensitive_dotfile(path) {
         return Some(ThreatDecision::InstantBan(ThreatCategory::Vcs));
     }
     None
@@ -215,8 +246,8 @@ fn inspect_dotfiles_ssh(method: &str, path: &str, status: u16) -> Option<ThreatD
     None
 }
 
-fn inspect_dotfiles_ide(path: &str, status: u16) -> Option<ThreatDecision> {
-    if (path.contains("/.vscode/")
+fn is_ide_dotfile(path: &str) -> bool {
+    path.contains("/.vscode/")
         || path.contains("/.idea/")
         || path.contains("/.zed/")
         || path.contains("/.xcodeproj/")
@@ -233,23 +264,43 @@ fn inspect_dotfiles_ide(path: &str, status: u16) -> Option<ThreatDecision> {
         || path.contains("/.helix/")
         || path.contains("/.vim/")
         || path.contains("/.nvim/")
-        || path.contains("/.gradle/"))
-        && status != 200
-    {
+        || path.contains("/.gradle/")
+}
+
+fn inspect_dotfiles_ide(path: &str, status: u16) -> Option<ThreatDecision> {
+    if is_ide_dotfile(path) && status != 200 {
         return Some(ThreatDecision::InstantBan(ThreatCategory::Ide));
     }
     None
 }
 
-fn inspect_dotfiles_cloud(method: &str, path: &str, status: u16) -> Option<ThreatDecision> {
-    if (path.ends_with("/azure-credentials.json")
+fn is_cloud_credentials_strike_path(path: &str) -> bool {
+    path.ends_with("/azure-credentials.json")
         || path.ends_with("/terraform.tfstate")
         || path.ends_with("/terraform.tfvars")
         || path.ends_with("/firebase-adminsdk.json")
         || path.ends_with("/service-account.json")
-        || path.ends_with("/application_default_credentials.json"))
-        && status != 200
-    {
+        || path.ends_with("/application_default_credentials.json")
+}
+
+fn is_gcp_key_path(path: &str) -> bool {
+    path.ends_with("/gcp-key.json")
+        || path.ends_with("/gcp-credentials.json")
+        || path.ends_with("/gcp-sa.json")
+        || path.ends_with("/google-credentials.json")
+        || path.ends_with("/google-key.json")
+}
+
+fn is_cloud_config_dotdir(path: &str) -> bool {
+    path.contains("/.aws/")
+        || path.contains("/.azure/")
+        || path.contains("/.kube/")
+        || path.contains("/.docker/")
+        || path.contains("/.oci/")
+}
+
+fn inspect_dotfiles_cloud(method: &str, path: &str, status: u16) -> Option<ThreatDecision> {
+    if is_cloud_credentials_strike_path(path) && status != 200 {
         if is_get_or_head(method) {
             return Some(ThreatDecision::SharedStrike {
                 category: ThreatCategory::Cloud,
@@ -266,22 +317,10 @@ fn inspect_dotfiles_cloud(method: &str, path: &str, status: u16) -> Option<Threa
             window_secs: 10,
         });
     }
-    if (path.ends_with("/gcp-key.json")
-        || path.ends_with("/gcp-credentials.json")
-        || path.ends_with("/gcp-sa.json")
-        || path.ends_with("/google-credentials.json")
-        || path.ends_with("/google-key.json"))
-        && status != 200
-    {
+    if is_gcp_key_path(path) && status != 200 {
         return Some(ThreatDecision::InstantBan(ThreatCategory::Cloud));
     }
-    if (path.contains("/.aws/")
-        || path.contains("/.azure/")
-        || path.contains("/.kube/")
-        || path.contains("/.docker/")
-        || path.contains("/.oci/"))
-        && !matches!(status, 200..=207 | 301 | 302)
-    {
+    if is_cloud_config_dotdir(path) && !matches!(status, 200..=207 | 301 | 302) {
         return Some(ThreatDecision::InstantBan(ThreatCategory::Cloud));
     }
     if path.contains("/.config/") && !matches!(status, 200..=207 | 301 | 302) {
@@ -332,63 +371,8 @@ fn inspect_dotfiles(method: &str, path: &str, status: u16) -> Option<ThreatDecis
     inspect_dotfiles_common_and_wp(method, path, status)
 }
 
-fn inspect_wordpress(method: &str, path: &str, status: u16) -> Option<ThreatDecision> {
-    if path.contains("/wp-login") && matches!(status, 404 | 405 | 444) {
-        return Some(ThreatDecision::SharedStrike {
-            category: ThreatCategory::Wordpress,
-            threshold: 4,
-            window_secs: 10,
-        });
-    }
-    if path.contains("/wp-l0gin") && status != 200 {
-        return Some(ThreatDecision::InstantBan(ThreatCategory::Wordpress));
-    }
-    if path.contains("/wp-signup") && matches!(status, 400 | 403 | 404 | 405 | 444) {
-        return Some(ThreatDecision::InstantBan(ThreatCategory::Wordpress));
-    }
-    if path.contains("/wp-admin") && matches!(status, 400 | 403 | 404 | 405 | 444) {
-        let threshold = if is_safe_query_method(method) { 7 } else { 5 };
-        return Some(ThreatDecision::IsolatedStrike {
-            category: ThreatCategory::Wordpress,
-            threshold,
-            window_secs: 10,
-        });
-    }
-    if (path.contains("/wp-config.") || path.contains("/wp-konfig"))
-        && matches!(status, 400 | 403 | 404 | 444)
-    {
-        return Some(ThreatDecision::InstantBan(ThreatCategory::Wordpress));
-    }
-    if path.contains("/xmlrpc.php") && matches!(status, 400 | 403 | 404 | 405 | 444) {
-        return Some(ThreatDecision::InstantBan(ThreatCategory::Wordpress));
-    }
-    if path.contains("/wp-include") && matches!(status, 400 | 403 | 404 | 405 | 444) {
-        let threshold = if is_safe_query_method(method) { 7 } else { 5 };
-        return Some(ThreatDecision::IsolatedStrike {
-            category: ThreatCategory::Wordpress,
-            threshold,
-            window_secs: 10,
-        });
-    }
-    if path.ends_with("/wlwmanifest.xml") && status != 200 {
-        return Some(ThreatDecision::SharedStrike {
-            category: ThreatCategory::Wordpress,
-            threshold: 2,
-            window_secs: 10,
-        });
-    }
-    if (path.contains("/wp_filemanager") || path.contains("/wp-file-manager")) && status != 200 {
-        return Some(ThreatDecision::InstantBan(ThreatCategory::Wordpress));
-    }
-    if path.contains("woocommerce_stripe_")
-        && !matches!(status, 200 | 301 | 302 | 400 | 401 | 403 | 500)
-    {
-        return Some(ThreatDecision::InstantBan(ThreatCategory::Wordpress));
-    }
-    if (path.contains("/wp-json") || path.contains("/wp-info")) && status == 444 {
-        return Some(ThreatDecision::InstantBan(ThreatCategory::Wordpress));
-    }
-    if (path.ends_with("/wp-manager.php")
+fn is_wp_core_file(path: &str) -> bool {
+    path.ends_with("/wp-manager.php")
         || path.ends_with("/wp-access.php")
         || path.ends_with("/wp-seo.php")
         || path.ends_with("/wp-style.php")
@@ -399,12 +383,73 @@ fn inspect_wordpress(method: &str, path: &str, status: u16) -> Option<ThreatDeci
         || path.ends_with("/wp-mail.php")
         || path.ends_with("/wp-temp.php")
         || path.ends_with("/wp-activate.php")
-        || path.ends_with("/wp-load.php"))
-        && matches!(status, 400 | 403 | 404 | 405 | 444)
+        || path.ends_with("/wp-load.php")
+}
+
+fn is_wp_error_status(status: u16) -> bool {
+    matches!(status, 400 | 403 | 404 | 405 | 444)
+}
+
+fn is_wp_instant_exploit_path(path: &str) -> bool {
+    path.contains("/wp-signup")
+        || path.contains("/wp-config.")
+        || path.contains("/wp-konfig")
+        || path.contains("/xmlrpc.php")
+        || is_wp_core_file(path)
+}
+
+fn inspect_wp_instant_exploits(path: &str, status: u16) -> Option<ThreatDecision> {
+    if path.contains("/wp-l0gin") && status != 200 {
+        return Some(ThreatDecision::InstantBan(ThreatCategory::Wordpress));
+    }
+    if (path.contains("/wp_filemanager") || path.contains("/wp-file-manager")) && status != 200 {
+        return Some(ThreatDecision::InstantBan(ThreatCategory::Wordpress));
+    }
+    if (path.contains("/wp-json") || path.contains("/wp-info")) && status == 444 {
+        return Some(ThreatDecision::InstantBan(ThreatCategory::Wordpress));
+    }
+    if path.contains("woocommerce_stripe_")
+        && !matches!(status, 200 | 301 | 302 | 400 | 401 | 403 | 500)
     {
         return Some(ThreatDecision::InstantBan(ThreatCategory::Wordpress));
     }
+    if is_wp_instant_exploit_path(path) && is_wp_error_status(status) {
+        return Some(ThreatDecision::InstantBan(ThreatCategory::Wordpress));
+    }
     None
+}
+
+fn inspect_wp_strikes(method: &str, path: &str, status: u16) -> Option<ThreatDecision> {
+    if path.contains("/wp-login") && matches!(status, 404 | 405 | 444) {
+        return Some(ThreatDecision::SharedStrike {
+            category: ThreatCategory::Wordpress,
+            threshold: 4,
+            window_secs: 10,
+        });
+    }
+    if path.ends_with("/wlwmanifest.xml") && status != 200 {
+        return Some(ThreatDecision::SharedStrike {
+            category: ThreatCategory::Wordpress,
+            threshold: 2,
+            window_secs: 10,
+        });
+    }
+    if (path.contains("/wp-admin") || path.contains("/wp-include")) && is_wp_error_status(status) {
+        let threshold = if is_safe_query_method(method) { 7 } else { 5 };
+        return Some(ThreatDecision::IsolatedStrike {
+            category: ThreatCategory::Wordpress,
+            threshold,
+            window_secs: 10,
+        });
+    }
+    None
+}
+
+fn inspect_wordpress(method: &str, path: &str, status: u16) -> Option<ThreatDecision> {
+    if let Some(decision) = inspect_wp_instant_exploits(path, status) {
+        return Some(decision);
+    }
+    inspect_wp_strikes(method, path, status)
 }
 
 fn inspect_actuator(path: &str, status: u16) -> Option<ThreatDecision> {
@@ -488,14 +533,7 @@ fn inspect_cloud_or_ssh_standalone(
         }
         return Some(ThreatDecision::InstantBan(ThreatCategory::Ssh));
     }
-    if (path.ends_with("/azure-credentials.json")
-        || path.ends_with("/terraform.tfstate")
-        || path.ends_with("/terraform.tfvars")
-        || path.ends_with("/firebase-adminsdk.json")
-        || path.ends_with("/service-account.json")
-        || path.ends_with("/application_default_credentials.json"))
-        && status != 200
-    {
+    if is_cloud_credentials_strike_path(path) && status != 200 {
         if is_get_or_head(method) {
             return Some(ThreatDecision::SharedStrike {
                 category: ThreatCategory::Cloud,
@@ -512,43 +550,35 @@ fn inspect_cloud_or_ssh_standalone(
             window_secs: 10,
         });
     }
-    if (path.ends_with("/gcp-key.json")
-        || path.ends_with("/gcp-credentials.json")
-        || path.ends_with("/gcp-sa.json")
-        || path.ends_with("/google-credentials.json")
-        || path.ends_with("/google-key.json"))
-        && status != 200
-    {
+    if is_gcp_key_path(path) && status != 200 {
         return Some(ThreatDecision::InstantBan(ThreatCategory::Cloud));
     }
     None
 }
 
-fn inspect_common_error(method: &str, path: &str, status: u16) -> Option<ThreatDecision> {
-    if (path.contains("/etc/passwd")
-        || path.contains("/etc/shadow")
-        || path.contains("/proc/self/"))
-        && status != 200
-    {
-        if is_safe_query_method(method) {
-            return Some(ThreatDecision::SharedStrike {
-                category: ThreatCategory::Common,
-                threshold: 3,
-                window_secs: 10,
-            });
-        }
-        return Some(ThreatDecision::InstantBan(ThreatCategory::Common));
-    }
-    if path.contains("/proc/1/") && status != 200 {
-        return Some(ThreatDecision::InstantBan(ThreatCategory::Common));
-    }
-    if (path.ends_with("/boot.ini")
+fn is_system_file_probe(path: &str) -> bool {
+    path.contains("/etc/passwd") || path.contains("/etc/shadow") || path.contains("/proc/self/")
+}
+
+fn is_common_backup_or_config_probe(path: &str) -> bool {
+    path.ends_with("/boot.ini")
         || path.ends_with("/win.ini")
         || path.ends_with(".bak")
         || path.ends_with(".swp")
-        || path.ends_with(".pyc"))
-        && status != 200
-    {
+        || path.ends_with(".pyc")
+}
+
+fn is_cloud_secret_probe(path: &str) -> bool {
+    path.contains("/var/run/secrets")
+        || path.contains("/secrets/kubernetes.io")
+        || path.ends_with("/rootkey.csv")
+}
+
+fn inspect_common_error(method: &str, path: &str, status: u16) -> Option<ThreatDecision> {
+    if status == 200 {
+        return None;
+    }
+    if is_system_file_probe(path) {
         if is_safe_query_method(method) {
             return Some(ThreatDecision::SharedStrike {
                 category: ThreatCategory::Common,
@@ -558,7 +588,20 @@ fn inspect_common_error(method: &str, path: &str, status: u16) -> Option<ThreatD
         }
         return Some(ThreatDecision::InstantBan(ThreatCategory::Common));
     }
-    if path.ends_with(".py") && status != 200 {
+    if path.contains("/proc/1/") || path.contains("/boaform/admin") {
+        return Some(ThreatDecision::InstantBan(ThreatCategory::Common));
+    }
+    if is_common_backup_or_config_probe(path) {
+        if is_safe_query_method(method) {
+            return Some(ThreatDecision::SharedStrike {
+                category: ThreatCategory::Common,
+                threshold: 3,
+                window_secs: 10,
+            });
+        }
+        return Some(ThreatDecision::InstantBan(ThreatCategory::Common));
+    }
+    if path.ends_with(".py") {
         if is_safe_query_method(method) {
             return Some(ThreatDecision::IsolatedStrike {
                 category: ThreatCategory::Common,
@@ -568,17 +611,10 @@ fn inspect_common_error(method: &str, path: &str, status: u16) -> Option<ThreatD
         }
         return Some(ThreatDecision::InstantBan(ThreatCategory::Common));
     }
-    if path.contains("/boaform/admin") && status != 200 {
-        return Some(ThreatDecision::InstantBan(ThreatCategory::Common));
-    }
-    if path.contains("/nbproject/") && status != 200 {
+    if path.contains("/nbproject/") {
         return Some(ThreatDecision::InstantBan(ThreatCategory::Ide));
     }
-    if (path.contains("/var/run/secrets")
-        || path.contains("/secrets/kubernetes.io")
-        || path.ends_with("/rootkey.csv"))
-        && status != 200
-    {
+    if is_cloud_secret_probe(path) {
         return Some(ThreatDecision::InstantBan(ThreatCategory::Cloud));
     }
     None
