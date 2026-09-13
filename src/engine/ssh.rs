@@ -153,6 +153,7 @@ async fn tail_ssh_journald(
     let child_res = tokio::process::Command::new("journalctl")
         .args(["-u", service, "-f", "-n", "0", "-o", "cat"])
         .stdout(std::process::Stdio::piped())
+        .kill_on_drop(true)
         .spawn();
 
     let mut child = match child_res {
