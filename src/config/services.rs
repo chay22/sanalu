@@ -18,10 +18,16 @@ pub struct NginxConfig {
     pub probe_instant_ban: bool,
     #[serde(default = "default_allowed_endpoints")]
     pub allowed_endpoints: Vec<String>,
+    #[serde(default = "default_1h")]
+    pub rescan_interval: String,
 }
 
 fn default_10m() -> String {
     "10m".into()
+}
+
+fn default_1h() -> String {
+    "1h".into()
 }
 
 fn default_one() -> u32 {
@@ -45,6 +51,7 @@ impl Default for NginxConfig {
             ban_tiers: default_nginx_ban_tiers(),
             probe_instant_ban: true,
             allowed_endpoints: default_allowed_endpoints(),
+            rescan_interval: default_1h(),
         }
     }
 }

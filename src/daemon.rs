@@ -91,12 +91,15 @@ async fn wait_for_daemon_events(
     store: &Arc<RedbStore>,
     cf_tx: &Option<mpsc::Sender<()>>,
     geo_db: &Arc<IpLookupDb>,
+    rescan_interval: Duration,
 ) -> Result<(), SanaluError> {
     let mut sigterm = tokio::signal::unix::signal(tokio::signal::unix::SignalKind::terminate())
         .map_err(SanaluError::Io)?;
     let mut sighup = tokio::signal::unix::signal(tokio::signal::unix::SignalKind::hangup()).ok();
-    let mut rescan_ticker = tokio::time::interval(Duration::from_secs(60));
+    let mut rescan_ticker = tokio::time::interval(rescan_interval);
+    let mut sweep_ticker = tokio::time::interval(Duration::from_secs(60));
     rescan_ticker.tick().await;
+    sweep_ticker.tick().await;
 
     loop {
         tokio::select! {
@@ -116,6 +119,8 @@ async fn wait_for_daemon_events(
             }
             _ = rescan_ticker.tick() => {
                 reconcile_watchers(registry, pipeline, firewall, store, cf_tx, geo_db);
+            }
+            _ = sweep_ticker.tick() => {
                 sweep_expired_bans(store);
             }
         }
@@ -131,15 +136,20 @@ async fn wait_for_daemon_events(
     store: &Arc<RedbStore>,
     cf_tx: &Option<mpsc::Sender<()>>,
     geo_db: &Arc<IpLookupDb>,
+    rescan_interval: Duration,
 ) -> Result<(), SanaluError> {
-    let mut rescan_ticker = tokio::time::interval(Duration::from_secs(60));
+    let mut rescan_ticker = tokio::time::interval(rescan_interval);
+    let mut sweep_ticker = tokio::time::interval(Duration::from_secs(60));
     rescan_ticker.tick().await;
+    sweep_ticker.tick().await;
 
     loop {
         tokio::select! {
             _ = tokio::signal::ctrl_c() => break,
             _ = rescan_ticker.tick() => {
                 reconcile_watchers(registry, pipeline, firewall, store, cf_tx, geo_db);
+            }
+            _ = sweep_ticker.tick() => {
                 sweep_expired_bans(store);
             }
         }
@@ -238,7 +248,21 @@ pub async fn run_daemon(config_path: &Path, dry_run_cli: bool) -> Result<(), San
         geo_db.clone(),
     );
 
-    wait_for_daemon_events(&mut registry, &pipeline, &firewall, &store, &cf_tx, &geo_db).await?;
+    let rescan_dur = crate::config::parse_duration_str(&config.nginx.rescan_interval)
+        .ok()
+        .flatten()
+        .unwrap_or(Duration::from_secs(3600));
+
+    wait_for_daemon_events(
+        &mut registry,
+        &pipeline,
+        &firewall,
+        &store,
+        &cf_tx,
+        &geo_db,
+        rescan_dur,
+    )
+    .await?;
 
     ssh_handle.abort();
     registry.abort_all();

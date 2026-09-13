@@ -383,3 +383,27 @@ async fn test_unchanged_logs_preserved_without_restart() {
 
     registry.abort_all();
 }
+
+#[test]
+fn test_nginx_config_rescan_interval_default_and_custom() {
+    use sanalu::config::{NginxConfig, parse_duration_str};
+    use std::time::Duration;
+
+    let default_cfg = NginxConfig::default();
+    assert_eq!(default_cfg.rescan_interval, "1h");
+    let dur = parse_duration_str(&default_cfg.rescan_interval)
+        .unwrap()
+        .unwrap();
+    assert_eq!(dur, Duration::from_secs(3600));
+
+    let toml_str = r#"
+        enabled = true
+        rescan_interval = "30m"
+    "#;
+    let parsed: NginxConfig = toml::from_str(toml_str).unwrap();
+    assert_eq!(parsed.rescan_interval, "30m");
+    let custom_dur = parse_duration_str(&parsed.rescan_interval)
+        .unwrap()
+        .unwrap();
+    assert_eq!(custom_dur, Duration::from_secs(1800));
+}
