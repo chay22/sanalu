@@ -12,6 +12,7 @@ pub mod ipc;
 pub mod parser;
 pub mod storage;
 pub mod uninstall;
+pub mod updater;
 
 use std::net::IpAddr;
 

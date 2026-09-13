@@ -23,8 +23,17 @@ pub enum SanaluError {
     #[error("Parser error: {0}")]
     Parser(String),
 
+    #[error("Update error: {0}")]
+    Update(String),
+
     #[error("IO error: {0}")]
     Io(#[from] std::io::Error),
+}
+
+impl From<reqwest::Error> for SanaluError {
+    fn from(err: reqwest::Error) -> Self {
+        Self::Update(err.to_string())
+    }
 }
 
 impl From<redb::Error> for SanaluError {
