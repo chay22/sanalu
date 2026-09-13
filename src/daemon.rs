@@ -32,7 +32,7 @@ fn ensure_data_dir(db_path: &Path) {
     }
 }
 
-fn sync_asn_fallback(
+pub fn sync_asn_fallback(
     firewall: &NftablesBackend,
     geo_db: &crate::geo::IpLookupDb,
     blocked_asns: &[u32],
@@ -58,7 +58,7 @@ pub fn restore_active_bans(
     Ok(targets.len())
 }
 
-fn reconcile_watchers(
+pub fn reconcile_watchers(
     registry: &mut NginxWatcherRegistry,
     pipeline: &Arc<ThreatPipeline>,
     firewall: &Arc<NftablesBackend>,
@@ -81,6 +81,8 @@ fn reconcile_watchers(
             report.added, report.updated, report.removed, report.unchanged
         );
     }
+    let blocked_asns = store.list_blocked_asns().unwrap_or_default();
+    sync_asn_fallback(firewall, geo_db, &blocked_asns);
 }
 
 fn sweep_expired_bans(store: &RedbStore) {
@@ -204,6 +206,15 @@ pub async fn run_daemon(config_path: &Path, dry_run_cli: bool) -> Result<(), San
             "[WARN] IP/ASN/Geo database not found at {:?}. ASN blocking and regional rules are INACTIVE. Run 'sanalu update-db' to enable geo-defense.",
             config.general.ip_db_path
         );
+        let bg_db_path = config.general.ip_db_path.clone();
+        tokio::spawn(async move {
+            let _ = crate::geo::download_if_stale_or_missing(
+                "https://iptoasn.com/data/ip2asn-v4.tsv.gz",
+                &bg_db_path,
+                30 * 86400,
+            )
+            .await;
+        });
     }
 
     let geo_db = Arc::new(if config.general.ip_db_path.exists() {

@@ -70,22 +70,22 @@ Commit: `feat(geo): persist downloaded ip2asn database to disk in update-db`
 - Consumes: `If-Modified-Since` HTTP header, `fs::metadata(path).modified()`, `reconcile_watchers`
 - Produces: Silent once-a-month background refresh and hot-reloading of `geo_db` and `sync_asn_fallback` on SIGHUP or rescan.
 
-- [ ] **Step 1: Write the failing test**
+- [x] **Step 1: Write the failing test**
 Create `tests/geo_auto_update_test.rs` verifying conditional HTTP update logic (skips download if 304 Not Modified or if file was modified within 30 days), and that `reconcile_watchers` re-syncs ASN fallback rules.
-- [ ] **Step 2: Run test to verify RED**
+- [x] **Step 2: Run test to verify RED**
 Run `rtk cargo test --test geo_auto_update_test`.
-- [ ] **Step 3: Implement conditional downloader and daemon wiring**
+- [x] **Step 3: Implement conditional downloader and daemon wiring**
 - In `src/geo/downloader.rs`, add `download_if_stale_or_missing(url: &str, dest_path: &Path, max_age_secs: u64) -> Result<Option<IpLookupDb>, SanaluError>`:
   - If `dest_path` exists and its `mtime` is newer than `max_age_secs` (30 days = 2,592,000s), skip download and return `Ok(None)`.
   - If stale or missing, send request with `If-Modified-Since` header matching `mtime`. If 304, return `Ok(None)`. If 200, save and return `Ok(Some(db))`.
 - In `src/daemon.rs`:
   - On startup: spawn a background task running `download_if_stale_or_missing` if enabled / missing.
   - In `reconcile_watchers`: reload `geo_db` from `config.general.ip_db_path` if modified, and call `sync_asn_fallback`.
-- [ ] **Step 4: Run test to verify GREEN**
+- [x] **Step 4: Run test to verify GREEN**
 Run `rtk cargo test --test geo_auto_update_test`.
-- [ ] **Step 5: Verify zero comments and clippy**
+- [x] **Step 5: Verify zero comments and clippy**
 Verify zero comments and 0 clippy warnings.
-- [ ] **Step 6: Commit**
+- [x] **Step 6: Commit**
 Commit: `feat(daemon): support monthly conditional geo-db auto-refresh and hot-reload`
 
 ---

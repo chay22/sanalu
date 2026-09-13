@@ -1,5 +1,7 @@
 pub mod downloader;
 pub mod lookup;
 
-pub use downloader::{download_and_save_ip2asn_db, download_ip2asn_db, save_db_to_file};
+pub use downloader::{
+    download_and_save_ip2asn_db, download_if_stale_or_missing, download_ip2asn_db, save_db_to_file,
+};
 pub use lookup::{IpLookupDb, IpMetadata, Ipv4RangeEntry};
