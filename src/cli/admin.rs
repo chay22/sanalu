@@ -180,3 +180,12 @@ pub async fn handle_uninstall<W: Write>(
     crate::uninstall::execute_uninstall(out, config_path, config, &options).await?;
     Ok(())
 }
+
+pub async fn handle_update<W: Write>(
+    out: &mut W,
+    check: bool,
+    yes: bool,
+) -> Result<(), Box<dyn std::error::Error>> {
+    crate::updater::execute_update(out, check, yes).await?;
+    Ok(())
+}

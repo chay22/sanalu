@@ -1,6 +1,6 @@
 use super::admin::{
     handle_ban_command, handle_cloudflare, handle_policy_command, handle_test_log, handle_unban,
-    handle_uninstall, handle_update_db,
+    handle_uninstall, handle_update, handle_update_db,
 };
 pub use super::query::generate_completions;
 use super::query::{
@@ -84,6 +84,9 @@ pub async fn dispatch_cli<W: Write>(
         }
         Commands::UpdateDb => {
             handle_update_db(out, &config.general.ip_db_path).await?;
+        }
+        Commands::Update { check, yes } => {
+            handle_update(out, *check, *yes).await?;
         }
         Commands::TestLog { path } => {
             handle_test_log(out, path, &config.nginx.allowed_endpoints)?;

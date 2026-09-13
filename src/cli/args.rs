@@ -71,6 +71,12 @@ pub enum Commands {
     },
     Discover,
     UpdateDb,
+    Update {
+        #[arg(long)]
+        check: bool,
+        #[arg(short, long)]
+        yes: bool,
+    },
     TestLog {
         path: PathBuf,
     },

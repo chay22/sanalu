@@ -69,9 +69,16 @@ pub fn find_matching_asset<'a>(
     })
 }
 
-pub async fn fetch_latest_release(repo: &str) -> Result<ReleaseInfo, SanaluError> {
+pub async fn fetch_latest_release_with_base_url(
+    base_url: &str,
+    repo: &str,
+) -> Result<ReleaseInfo, SanaluError> {
     let client = reqwest::Client::builder().build()?;
-    let url = format!("https://api.github.com/repos/{}/releases/latest", repo);
+    let url = if base_url.ends_with('/') {
+        format!("{}repos/{}/releases/latest", base_url, repo)
+    } else {
+        format!("{}/repos/{}/releases/latest", base_url, repo)
+    };
     let resp = client
         .get(&url)
         .header(
@@ -90,4 +97,8 @@ pub async fn fetch_latest_release(repo: &str) -> Result<ReleaseInfo, SanaluError
 
     let info: ReleaseInfo = resp.json().await?;
     Ok(info)
+}
+
+pub async fn fetch_latest_release(repo: &str) -> Result<ReleaseInfo, SanaluError> {
+    fetch_latest_release_with_base_url("https://api.github.com", repo).await
 }
