@@ -12,6 +12,7 @@ fn test_systemd_service_file_and_limits() {
     assert!(content.contains("OOMScoreAdjust=-500"));
     assert!(content.contains("TasksMax=infinity"));
     assert!(content.contains("ExecStart=/usr/bin/sanalu run"));
+    assert!(content.contains("ExecReload=/bin/kill -HUP $MAINPID"));
     assert!(content.contains("StandardOutput=journal"));
     assert!(content.contains("RuntimeDirectory=sanalu"));
 }
