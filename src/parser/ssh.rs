@@ -81,12 +81,25 @@ pub fn parse_ssh_log_line(line: &str) -> SshEvent {
 
 #[derive(Default)]
 pub struct SshStatefulParser {
-    pending_pids: HashMap<u32, &'static str>,
+    pub pending_pids: HashMap<u32, &'static str>,
 }
 
 impl SshStatefulParser {
     pub fn new() -> Self {
         Self::default()
+    }
+
+    pub fn pending_count(&self) -> usize {
+        self.pending_pids.len()
+    }
+
+    fn insert_pending(&mut self, pid: u32, reason: &'static str) {
+        if !self.pending_pids.contains_key(&pid) && self.pending_pids.len() >= 256 {
+            if let Some(old_key) = self.pending_pids.keys().next().copied() {
+                self.pending_pids.remove(&old_key);
+            }
+        }
+        self.pending_pids.insert(pid, reason);
     }
 
     pub fn process_line(&mut self, line: &str) -> SshEvent {
@@ -108,14 +121,14 @@ impl SshStatefulParser {
 
         if line.contains("kex_exchange_identification: client sent invalid protocol identifier") {
             if let Some(p) = pid {
-                self.pending_pids.insert(p, "invalid_protocol_identifier");
+                self.insert_pending(p, "invalid_protocol_identifier");
             }
             return SshEvent::Ignore;
         }
 
         if line.contains("banner line contains invalid characters") {
             if let Some(p) = pid {
-                self.pending_pids.insert(p, "banner_invalid_characters");
+                self.insert_pending(p, "banner_invalid_characters");
             }
             return SshEvent::Ignore;
         }

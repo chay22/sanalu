@@ -61,4 +61,55 @@ impl RedbStore {
         write_txn.commit()?;
         Ok(updated_count)
     }
+
+    pub fn save_offense(
+        &self,
+        ip: IpAddr,
+        record: &StoredOffenseRecord,
+    ) -> Result<(), SanaluError> {
+        let key = ip_to_key(ip);
+        let encoded =
+            serde_json::to_vec(record).map_err(|e| SanaluError::Storage(e.to_string()))?;
+        let write_txn = self.db.begin_write()?;
+        {
+            let mut table = write_txn.open_table(TABLE_OFFENSES)?;
+            table.insert(key, encoded.as_slice())?;
+        }
+        write_txn.commit()?;
+        Ok(())
+    }
+
+    pub fn cleanup_stale_offenses(
+        &self,
+        max_age_secs: u64,
+        now_secs: u64,
+    ) -> Result<usize, SanaluError> {
+        let write_txn = self.db.begin_write()?;
+        let mut stale_keys = Vec::new();
+        {
+            let table = write_txn.open_table(TABLE_OFFENSES)?;
+            for item in table.iter()? {
+                let (key, val) = item?;
+                let rec: StoredOffenseRecord = serde_json::from_slice(val.value())
+                    .map_err(|e| SanaluError::Storage(e.to_string()))?;
+                if now_secs.saturating_sub(rec.last_seen_secs) > max_age_secs {
+                    stale_keys.push(key.value());
+                }
+            }
+        }
+        if stale_keys.is_empty() {
+            return Ok(0);
+        }
+        let mut count = 0;
+        {
+            let mut table = write_txn.open_table(TABLE_OFFENSES)?;
+            for key in stale_keys {
+                if table.remove(key)?.is_some() {
+                    count += 1;
+                }
+            }
+        }
+        write_txn.commit()?;
+        Ok(count)
+    }
 }

@@ -100,22 +100,22 @@ Commit: `feat(daemon): support monthly conditional geo-db auto-refresh and hot-r
 - Consumes: `pipeline.cleanup_stale_strikes(now, max_idle)`, `store.cleanup_stale_offenses(max_age_secs)`
 - Produces: Constant bounded memory and disk usage over months of runtime.
 
-- [ ] **Step 1: Write the failing test**
+- [x] **Step 1: Write the failing test**
 Create `tests/memory_leak_pruning_test.rs`:
 - Verify `cleanup_stale_offenses` in Redb deletes offenses older than threshold while retaining fresh ones.
 - Verify `SshStatefulParser` bounds `pending_pids` to 256 and does not grow unbounded.
 - Verify `pipeline.cleanup_stale_strikes` removes idle IP strikes.
-- [ ] **Step 2: Run test to verify RED**
+- [x] **Step 2: Run test to verify RED**
 Run `rtk cargo test --test memory_leak_pruning_test`.
-- [ ] **Step 3: Implement leak fixes**
+- [x] **Step 3: Implement leak fixes**
 - In `src/storage/offenses.rs`, add `pub fn cleanup_stale_offenses(&self, max_age_secs: u64, now_secs: u64) -> Result<usize, SanaluError>`.
 - In `src/parser/ssh.rs`, add bound check: if `self.pending_pids.len() >= 256`, evict oldest entries or clear stale ones.
 - In `src/daemon.rs`: in `sweep_ticker.tick()`, call `pipeline.cleanup_stale_strikes(now, 600)` and `store.cleanup_stale_offenses(30 * 86400, now)`.
-- [ ] **Step 4: Run test to verify GREEN**
+- [x] **Step 4: Run test to verify GREEN**
 Run `rtk cargo test --test memory_leak_pruning_test`.
-- [ ] **Step 5: Verify zero comments and clippy**
+- [x] **Step 5: Verify zero comments and clippy**
 Verify zero comments and 0 clippy warnings.
-- [ ] **Step 6: Commit**
+- [x] **Step 6: Commit**
 Commit: `fix(engine): plug memory leaks in strike tracker, ssh parser and offense storage`
 
 ---

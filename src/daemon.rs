@@ -136,6 +136,12 @@ async fn wait_for_daemon_events(
             }
             _ = sweep_ticker.tick() => {
                 sweep_expired_bans(store);
+                let now = SystemTime::now()
+                    .duration_since(UNIX_EPOCH)
+                    .unwrap_or_default()
+                    .as_secs();
+                pipeline.cleanup_stale_strikes(now, 600);
+                let _ = store.cleanup_stale_offenses(30 * 86400, now);
             }
         }
     }
@@ -165,6 +171,12 @@ async fn wait_for_daemon_events(
             }
             _ = sweep_ticker.tick() => {
                 sweep_expired_bans(store);
+                let now = SystemTime::now()
+                    .duration_since(UNIX_EPOCH)
+                    .unwrap_or_default()
+                    .as_secs();
+                pipeline.cleanup_stale_strikes(now, 600);
+                let _ = store.cleanup_stale_offenses(30 * 86400, now);
             }
         }
     }

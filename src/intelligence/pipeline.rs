@@ -234,6 +234,10 @@ impl ThreatPipeline {
         self.strike_tracker.cleanup_stale(now_secs, max_idle_secs);
     }
 
+    pub fn strike_tracker(&self) -> &IpStrikeTracker {
+        &self.strike_tracker
+    }
+
     pub fn evaluate_ssh_event(&self, event: &SshEvent) -> PipelineAction {
         match event {
             SshEvent::Ignore => PipelineAction::Allow,
