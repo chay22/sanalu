@@ -11,10 +11,25 @@ pub fn format_status<W: Write>(
     out: &mut W,
     store: &RedbStore,
     db_path: &Path,
-    _config: Option<&AppConfig>,
+    config: Option<&AppConfig>,
 ) -> Result<(), SanaluError> {
     let _ = writeln!(out, "=== Sanalu Status ===");
     let _ = writeln!(out, "Database: {:?}", db_path);
+    if let Some(config) = config {
+        if config.general.ip_db_path.exists() {
+            let _ = writeln!(
+                out,
+                "ASN/Geo Database: Active ({:?})",
+                config.general.ip_db_path
+            );
+        } else {
+            let _ = writeln!(
+                out,
+                "ASN/Geo Database: MISSING ({:?}) - Geo-defense inactive. Run 'sanalu update-db' to activate.",
+                config.general.ip_db_path
+            );
+        }
+    }
 
     let bans = store.list_active_bans().unwrap_or_default();
     let _ = writeln!(out, "\nActive Bans: {}", bans.len());

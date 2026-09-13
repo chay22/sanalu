@@ -8,7 +8,7 @@ use crate::intelligence::ThreatPipeline;
 use crate::storage::RedbStore;
 use std::path::Path;
 use std::sync::Arc;
-use std::time::Duration;
+use std::time::{Duration, SystemTime, UNIX_EPOCH};
 use tokio::sync::mpsc;
 
 pub use crate::discovery::is_root;
@@ -71,6 +71,18 @@ fn reconcile_watchers(
     }
 }
 
+fn sweep_expired_bans(store: &RedbStore) {
+    let now_secs = SystemTime::now()
+        .duration_since(UNIX_EPOCH)
+        .unwrap_or_default()
+        .as_secs();
+    if let Ok(count) = store.cleanup_expired_bans(now_secs) {
+        if count > 0 {
+            println!("Purged {} expired temporary bans from database", count);
+        }
+    }
+}
+
 #[cfg(unix)]
 async fn wait_for_daemon_events(
     registry: &mut NginxWatcherRegistry,
@@ -104,6 +116,7 @@ async fn wait_for_daemon_events(
             }
             _ = rescan_ticker.tick() => {
                 reconcile_watchers(registry, pipeline, firewall, store, cf_tx, geo_db);
+                sweep_expired_bans(store);
             }
         }
     }
@@ -127,6 +140,7 @@ async fn wait_for_daemon_events(
             _ = tokio::signal::ctrl_c() => break,
             _ = rescan_ticker.tick() => {
                 reconcile_watchers(registry, pipeline, firewall, store, cf_tx, geo_db);
+                sweep_expired_bans(store);
             }
         }
     }
@@ -157,6 +171,13 @@ pub async fn run_daemon(config_path: &Path, dry_run_cli: bool) -> Result<(), San
 
     let firewall = Arc::new(NftablesBackend::auto_detect(dry_run));
     firewall.init_tables()?;
+
+    if !config.general.ip_db_path.exists() {
+        println!(
+            "[WARN] IP/ASN/Geo database not found at {:?}. ASN blocking and regional rules are INACTIVE. Run 'sanalu update-db' to enable geo-defense.",
+            config.general.ip_db_path
+        );
+    }
 
     let geo_db = Arc::new(if config.general.ip_db_path.exists() {
         crate::geo::IpLookupDb::from_file(&config.general.ip_db_path).unwrap_or_default()

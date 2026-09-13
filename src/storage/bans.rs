@@ -83,4 +83,37 @@ impl RedbStore {
         }
         Ok(results)
     }
+
+    pub fn cleanup_expired_bans(&self, now_secs: u64) -> Result<usize, SanaluError> {
+        let read_txn = self.db.begin_read()?;
+        let table = read_txn.open_table(TABLE_BANS)?;
+        let mut expired_keys = Vec::new();
+        for item in table.iter()? {
+            let (key, val) = item?;
+            let record: StoredBanRecord = serde_json::from_slice(val.value())
+                .map_err(|e| SanaluError::Storage(e.to_string()))?;
+            if record.expires_at_secs.is_some_and(|exp| exp <= now_secs) {
+                expired_keys.push(key.value().to_string());
+            }
+        }
+        drop(table);
+        drop(read_txn);
+
+        if expired_keys.is_empty() {
+            return Ok(0);
+        }
+
+        let write_txn = self.db.begin_write()?;
+        let mut count = 0;
+        {
+            let mut table = write_txn.open_table(TABLE_BANS)?;
+            for key in &expired_keys {
+                if table.remove(key.as_str())?.is_some() {
+                    count += 1;
+                }
+            }
+        }
+        write_txn.commit()?;
+        Ok(count)
+    }
 }
