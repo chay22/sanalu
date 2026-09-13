@@ -3,15 +3,20 @@ use crate::config::{AppConfig, parse_app_config};
 use crate::discovery::discover_environment;
 use crate::error::SanaluError;
 use crate::firewall::{FirewallBackend, NftablesBackend};
+use crate::geo::IpLookupDb;
+use crate::intelligence::ThreatPipeline;
 use crate::storage::RedbStore;
 use std::path::Path;
 use std::sync::Arc;
+use std::time::Duration;
+use tokio::sync::mpsc;
 
 pub use crate::discovery::is_root;
 
 pub use crate::engine::{
-    build_pipeline_from_config, build_pipeline_from_store, get_effective_allowed_regions,
-    get_effective_blocked_asns, get_effective_blocked_categories, replay_log_file,
+    ActiveWatcher, NginxWatcherRegistry, ReconcileReport, build_pipeline_from_config,
+    build_pipeline_from_store, get_effective_allowed_regions, get_effective_blocked_asns,
+    get_effective_blocked_categories, replay_log_file,
 };
 
 fn ensure_data_dir(db_path: &Path) {
@@ -39,6 +44,91 @@ fn sync_asn_fallback(
     if !asn_cidrs.is_empty() {
         let _ = firewall.sync_asn_cidrs(&asn_cidrs);
     }
+}
+
+fn reconcile_watchers(
+    registry: &mut NginxWatcherRegistry,
+    pipeline: &Arc<ThreatPipeline>,
+    firewall: &Arc<NftablesBackend>,
+    store: &Arc<RedbStore>,
+    cf_tx: &Option<mpsc::Sender<()>>,
+    geo_db: &Arc<IpLookupDb>,
+) {
+    let fresh_disc = discover_environment();
+    let report = registry.reconcile(
+        &fresh_disc.nginx_logs,
+        pipeline.clone(),
+        firewall.clone(),
+        store.clone(),
+        cf_tx.clone(),
+        geo_db.clone(),
+    );
+    if report.added > 0 || report.updated > 0 || report.removed > 0 {
+        println!(
+            "Nginx watchers reconciled: {} added, {} updated, {} removed, {} unchanged",
+            report.added, report.updated, report.removed, report.unchanged
+        );
+    }
+}
+
+#[cfg(unix)]
+async fn wait_for_daemon_events(
+    registry: &mut NginxWatcherRegistry,
+    pipeline: &Arc<ThreatPipeline>,
+    firewall: &Arc<NftablesBackend>,
+    store: &Arc<RedbStore>,
+    cf_tx: &Option<mpsc::Sender<()>>,
+    geo_db: &Arc<IpLookupDb>,
+) -> Result<(), SanaluError> {
+    let mut sigterm = tokio::signal::unix::signal(tokio::signal::unix::SignalKind::terminate())
+        .map_err(SanaluError::Io)?;
+    let mut sighup = tokio::signal::unix::signal(tokio::signal::unix::SignalKind::hangup()).ok();
+    let mut rescan_ticker = tokio::time::interval(Duration::from_secs(60));
+    rescan_ticker.tick().await;
+
+    loop {
+        tokio::select! {
+            _ = tokio::signal::ctrl_c() => break,
+            _ = sigterm.recv() => break,
+            _ = async {
+                match sighup.as_mut() {
+                    Some(sh) => {
+                        let _ = sh.recv().await;
+                    }
+                    None => std::future::pending().await,
+                }
+            } => {
+                reconcile_watchers(registry, pipeline, firewall, store, cf_tx, geo_db);
+            }
+            _ = rescan_ticker.tick() => {
+                reconcile_watchers(registry, pipeline, firewall, store, cf_tx, geo_db);
+            }
+        }
+    }
+    Ok(())
+}
+
+#[cfg(not(unix))]
+async fn wait_for_daemon_events(
+    registry: &mut NginxWatcherRegistry,
+    pipeline: &Arc<ThreatPipeline>,
+    firewall: &Arc<NftablesBackend>,
+    store: &Arc<RedbStore>,
+    cf_tx: &Option<mpsc::Sender<()>>,
+    geo_db: &Arc<IpLookupDb>,
+) -> Result<(), SanaluError> {
+    let mut rescan_ticker = tokio::time::interval(Duration::from_secs(60));
+    rescan_ticker.tick().await;
+
+    loop {
+        tokio::select! {
+            _ = tokio::signal::ctrl_c() => break,
+            _ = rescan_ticker.tick() => {
+                reconcile_watchers(registry, pipeline, firewall, store, cf_tx, geo_db);
+            }
+        }
+    }
+    Ok(())
 }
 
 pub async fn run_daemon(config_path: &Path, dry_run_cli: bool) -> Result<(), SanaluError> {
@@ -100,31 +190,33 @@ pub async fn run_daemon(config_path: &Path, dry_run_cli: bool) -> Result<(), San
         let _ = ipc_server.run().await;
     });
 
-    for log in &env_disc.nginx_logs {
-        crate::engine::spawn_nginx_watcher(
-            log.path.clone(),
-            log.format_kind.to_compiled(),
-            pipeline.clone(),
-            firewall.clone(),
-            store.clone(),
-            cf_tx.clone(),
-            geo_db.clone(),
+    let mut registry = NginxWatcherRegistry::new();
+    let init_report = registry.reconcile(
+        &env_disc.nginx_logs,
+        pipeline.clone(),
+        firewall.clone(),
+        store.clone(),
+        cf_tx.clone(),
+        geo_db.clone(),
+    );
+    if init_report.added > 0 || init_report.updated > 0 || init_report.removed > 0 {
+        println!(
+            "Nginx watchers reconciled: {} added, {} updated, {} removed, {} unchanged",
+            init_report.added, init_report.updated, init_report.removed, init_report.unchanged
         );
     }
 
-    #[cfg(unix)]
-    {
-        let mut sigterm = tokio::signal::unix::signal(tokio::signal::unix::SignalKind::terminate())
-            .map_err(SanaluError::Io)?;
-        tokio::select! {
-            _ = tokio::signal::ctrl_c() => {},
-            _ = sigterm.recv() => {},
-        }
-    }
-    #[cfg(not(unix))]
-    {
-        tokio::signal::ctrl_c().await.map_err(SanaluError::Io)?;
-    }
+    wait_for_daemon_events(
+        &mut registry,
+        &pipeline,
+        &firewall,
+        &store,
+        &cf_tx,
+        &geo_db,
+    )
+    .await?;
+
+    registry.abort_all();
 
     if socket_path.exists() {
         let _ = std::fs::remove_file(&socket_path);
