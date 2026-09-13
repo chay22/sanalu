@@ -8,19 +8,36 @@ pub enum SshEvent {
     Ignore,
 }
 
+fn parse_probe_prefix(trimmed: &str, prefix: &str, reason: &'static str) -> Option<SshEvent> {
+    let pos = trimmed.find(prefix)?;
+    let after = trimmed.get(pos + prefix.len()..)?;
+    let ip_str = after.split_whitespace().next()?;
+    let ip = ip_str.parse::<IpAddr>().ok()?;
+    Some(SshEvent::ScannerProbe { ip, reason })
+}
+
+fn parse_auth_failure(trimmed: &str, marker: &str) -> Option<SshEvent> {
+    let pos = trimmed.find(marker)?;
+    let after = trimmed.get(pos + marker.len()..)?;
+    let after = after.strip_prefix("invalid user ").unwrap_or(after);
+    let mut parts = after.split_whitespace();
+    let user = parts.next().unwrap_or("unknown").to_string();
+    let from_pos = after.find(" from ")?;
+    let after_from = after.get(from_pos + " from ".len()..)?;
+    let ip_str = after_from.split_whitespace().next()?;
+    let ip = ip_str.parse::<IpAddr>().ok()?;
+    Some(SshEvent::AuthFailure { ip, user })
+}
+
 pub fn parse_ssh_log_line(line: &str) -> SshEvent {
     let trimmed = line.trim();
 
-    if let Some(pos) = trimmed.find("banner exchange: Connection from ") {
-        let after = &trimmed[pos + "banner exchange: Connection from ".len()..];
-        if let Some(ip_str) = after.split_whitespace().next() {
-            if let Ok(ip) = ip_str.parse::<IpAddr>() {
-                return SshEvent::ScannerProbe {
-                    ip,
-                    reason: "banner_invalid_format",
-                };
-            }
-        }
+    if let Some(ev) = parse_probe_prefix(
+        trimmed,
+        "banner exchange: Connection from ",
+        "banner_invalid_format",
+    ) {
+        return ev;
     }
 
     if trimmed.contains("kex_exchange_identification") {
@@ -35,45 +52,20 @@ pub fn parse_ssh_log_line(line: &str) -> SshEvent {
         }
     }
 
-    if let Some(pos) = trimmed.find("Did not receive identification string from ") {
-        let after = &trimmed[pos + "Did not receive identification string from ".len()..];
-        if let Some(ip_str) = after.split_whitespace().next() {
-            if let Ok(ip) = ip_str.parse::<IpAddr>() {
-                return SshEvent::ScannerProbe {
-                    ip,
-                    reason: "no_identification_string",
-                };
-            }
-        }
+    if let Some(ev) = parse_probe_prefix(
+        trimmed,
+        "Did not receive identification string from ",
+        "no_identification_string",
+    ) {
+        return ev;
     }
 
-    if let Some(pos) = trimmed.find("Failed password for ") {
-        let after = &trimmed[pos + "Failed password for ".len()..];
-        let after = after.strip_prefix("invalid user ").unwrap_or(after);
-        let mut parts = after.split_whitespace();
-        let user = parts.next().unwrap_or("unknown").to_string();
-        if let Some(from_pos) = after.find(" from ") {
-            let after_from = &after[from_pos + " from ".len()..];
-            if let Some(ip_str) = after_from.split_whitespace().next() {
-                if let Ok(ip) = ip_str.parse::<IpAddr>() {
-                    return SshEvent::AuthFailure { ip, user };
-                }
-            }
-        }
+    if let Some(ev) = parse_auth_failure(trimmed, "Failed password for ") {
+        return ev;
     }
 
-    if let Some(pos) = trimmed.find("Invalid user ") {
-        let after = &trimmed[pos + "Invalid user ".len()..];
-        let mut parts = after.split_whitespace();
-        let user = parts.next().unwrap_or("unknown").to_string();
-        if let Some(from_pos) = after.find(" from ") {
-            let after_from = &after[from_pos + " from ".len()..];
-            if let Some(ip_str) = after_from.split_whitespace().next() {
-                if let Ok(ip) = ip_str.parse::<IpAddr>() {
-                    return SshEvent::AuthFailure { ip, user };
-                }
-            }
-        }
+    if let Some(ev) = parse_auth_failure(trimmed, "Invalid user ") {
+        return ev;
     }
 
     SshEvent::Ignore
@@ -139,15 +131,15 @@ impl SshStatefulParser {
 
 fn extract_sshd_pid(line: &str) -> Option<u32> {
     let start = line.find("sshd[")? + 5;
-    let end = start + line[start..].find(']')?;
-    line[start..end].parse().ok()
+    let end = start + line.get(start..)?.find(']')?;
+    line.get(start..end)?.parse().ok()
 }
 
 fn extract_ip_from_phrase(line: &str, phrase: &str) -> Option<IpAddr> {
     let pos = line.find(phrase)? + phrase.len();
-    let after = &line[pos..];
+    let after = line.get(pos..)?;
     let end = after
         .find(|c: char| c.is_whitespace() || c == ':' || c == ',')
         .unwrap_or(after.len());
-    after[..end].parse().ok()
+    after.get(..end)?.parse().ok()
 }

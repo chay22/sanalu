@@ -46,7 +46,7 @@ impl IpStrikeTracker {
         now_secs: u64,
     ) -> StrikeResult {
         let idx = shard_index(&ip);
-        let mut lock = self.shards[idx].write().unwrap();
+        let mut lock = self.shards[idx].write().unwrap_or_else(|p| p.into_inner());
         let record = lock.entry(ip).or_default();
         if record.last_critical_secs != 0
             && now_secs.saturating_sub(record.last_critical_secs) > window_secs
@@ -77,7 +77,7 @@ impl IpStrikeTracker {
     ) -> StrikeResult {
         let cat_u8 = cat.as_u8();
         let idx = shard_index(&ip);
-        let mut lock = self.shards[idx].write().unwrap();
+        let mut lock = self.shards[idx].write().unwrap_or_else(|p| p.into_inner());
         let record = lock.entry(ip).or_default();
         if record.isolated_cat != cat_u8
             || (record.last_isolated_secs != 0
@@ -102,7 +102,7 @@ impl IpStrikeTracker {
 
     pub fn cleanup_stale(&self, now_secs: u64, max_idle_secs: u64) {
         for shard in &self.shards {
-            let mut lock = shard.write().unwrap();
+            let mut lock = shard.write().unwrap_or_else(|p| p.into_inner());
             lock.retain(|_, rec| {
                 let crit_idle = if rec.last_critical_secs == 0 {
                     u64::MAX
@@ -121,22 +121,32 @@ impl IpStrikeTracker {
 
     pub fn clear_ip(&self, ip: &IpAddr) {
         let idx = shard_index(ip);
-        let mut lock = self.shards[idx].write().unwrap();
+        let mut lock = self.shards[idx].write().unwrap_or_else(|p| p.into_inner());
         lock.remove(ip);
     }
 
     pub fn get_record(&self, ip: &IpAddr) -> Option<IpStrikeRecord> {
         let idx = shard_index(ip);
-        let lock = self.shards[idx].read().unwrap();
+        let lock = self.shards[idx].read().unwrap_or_else(|p| p.into_inner());
         lock.get(ip).copied()
     }
 
     pub fn len(&self) -> usize {
-        self.shards.iter().map(|s| s.read().unwrap().len()).sum()
+        self.shards
+            .iter()
+            .map(|s| s.read().unwrap_or_else(|p| p.into_inner()).len())
+            .sum()
     }
 
     pub fn is_empty(&self) -> bool {
-        self.shards.iter().all(|s| s.read().unwrap().is_empty())
+        self.shards
+            .iter()
+            .all(|s| s.read().unwrap_or_else(|p| p.into_inner()).is_empty())
+    }
+
+    pub fn shard_lock_for_test(&self, ip: &IpAddr) -> &RwLock<HashMap<IpAddr, IpStrikeRecord>> {
+        let idx = shard_index(ip);
+        &self.shards[idx]
     }
 }
 

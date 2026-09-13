@@ -130,21 +130,21 @@ Commit: `fix(engine): plug memory leaks in strike tracker, ssh parser and offens
 - Consumes: `unwrap_or_else(|p| p.into_inner())`, safe `.get(start..end)`
 - Produces: 100% panic immunity against lock poisoning and malformed/binary input strings.
 
-- [ ] **Step 1: Write the failing test**
+- [x] **Step 1: Write the failing test**
 Create `tests/panic_resilience_test.rs`:
 - Feed corrupt strings, truncated multi-byte UTF-8, binary garbage, and arbitrary slices to `parse_ssh_log_line`, `SshStatefulParser::process_line`, and `parse_nginx_error_line`.
 - Test `IpStrikeTracker` behavior under poisoned lock conditions.
-- [ ] **Step 2: Run test to verify RED**
+- [x] **Step 2: Run test to verify RED**
 Run `rtk cargo test --test panic_resilience_test`.
-- [ ] **Step 3: Implement panic hardening**
+- [x] **Step 3: Implement panic hardening**
 - In `src/intelligence/strikes.rs`: replace `.write().unwrap()` and `.read().unwrap()` with `.unwrap_or_else(|p| p.into_inner())`.
 - In `src/parser/ssh.rs`: replace direct slicing `line[start..end]` with `line.get(start..end)?` and `line.get(pos..)?`.
 - In `src/parser/nginx.rs`: replace direct slicing in `parse_nginx_error_line` with boundary-safe `.get(...)`.
-- [ ] **Step 4: Run test to verify GREEN**
+- [x] **Step 4: Run test to verify GREEN**
 Run `rtk cargo test --test panic_resilience_test`.
-- [ ] **Step 5: Verify zero comments and clippy**
+- [x] **Step 5: Verify zero comments and clippy**
 Verify zero comments and 0 clippy warnings.
-- [ ] **Step 6: Commit**
+- [x] **Step 6: Commit**
 Commit: `refactor(parser): harden against lock poisoning and string slice panics`
 
 ---

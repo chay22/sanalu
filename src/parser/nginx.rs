@@ -45,7 +45,7 @@ impl CompiledLogFormat {
         let trimmed = format_body.trim();
         let stripped = if trimmed.starts_with('\'') && trimmed.ends_with('\'') && trimmed.len() >= 2
         {
-            trimmed[1..trimmed.len() - 1].trim()
+            trimmed.get(1..trimmed.len() - 1).unwrap_or("").trim()
         } else {
             trimmed
         };
@@ -248,7 +248,7 @@ fn parse_delimited_line<'a>(
                 if let Some(var) = pending_var.take() {
                     let rest = clean_line.get(cursor..)?;
                     let offset = rest.find(lit.as_str())?;
-                    let val_slice = &rest[..offset];
+                    let val_slice = rest.get(..offset)?;
                     assign_variable_field(var, val_slice, &mut fields);
                     cursor += offset + lit.len();
                 } else {
@@ -263,7 +263,7 @@ fn parse_delimited_line<'a>(
                 if let Some(prev_var) = pending_var.take() {
                     let rest = clean_line.get(cursor..)?;
                     let offset = rest.find(' ').unwrap_or(rest.len());
-                    assign_variable_field(prev_var, &rest[..offset], &mut fields);
+                    assign_variable_field(prev_var, rest.get(..offset).unwrap_or(""), &mut fields);
                     cursor += offset;
                 }
                 pending_var = Some(var);
@@ -441,30 +441,30 @@ pub fn parse_nginx_combined_line<'a>(line: &'a str) -> Option<NginxLogEntry<'a>>
     }
 
     let ip_end = trimmed.find(' ')?;
-    let ip_str = &trimmed[..ip_end];
+    let ip_str = trimmed.get(..ip_end)?;
     let client_ip: IpAddr = ip_str.parse().ok()?;
 
     let req_start = trimmed.find('"')? + 1;
-    let req_end = req_start + trimmed[req_start..].find('"')?;
-    let request_str = &trimmed[req_start..req_end];
+    let req_end = req_start + trimmed.get(req_start..)?.find('"')?;
+    let request_str = trimmed.get(req_start..req_end)?;
 
     let mut req_parts = request_str.split_whitespace();
     let method = req_parts.next().unwrap_or("GET");
     let path = req_parts.next().unwrap_or("/");
 
-    let after_req = trimmed[req_end + 1..].trim_start();
+    let after_req = trimmed.get(req_end + 1..)?.trim_start();
     let mut tokens = after_req.split_whitespace();
     let status_str = tokens.next()?;
     let status: u16 = status_str.parse().ok()?;
 
     let ref_start = after_req.find('"')? + 1;
-    let ref_end = ref_start + after_req[ref_start..].find('"')?;
-    let referer = &after_req[ref_start..ref_end];
+    let ref_end = ref_start + after_req.get(ref_start..)?.find('"')?;
+    let referer = after_req.get(ref_start..ref_end)?;
 
-    let after_ref = &after_req[ref_end + 1..];
+    let after_ref = after_req.get(ref_end + 1..)?;
     let ua_start = after_ref.find('"')? + 1;
-    let ua_end = ua_start + after_ref[ua_start..].find('"')?;
-    let user_agent = &after_ref[ua_start..ua_end];
+    let ua_end = ua_start + after_ref.get(ua_start..)?.find('"')?;
+    let user_agent = after_ref.get(ua_start..ua_end)?;
 
     Some(NginxLogEntry {
         client_ip,
@@ -546,35 +546,44 @@ pub fn parse_nginx_json_line(line: &str) -> Option<(IpAddr, String, String, u16,
 
 pub fn parse_nginx_error_line(line: &str) -> Option<(IpAddr, String)> {
     let client_idx = line.find(", client: ")?;
-    let after_client = &line[client_idx + ", client: ".len()..];
+    let after_client = line.get(client_idx + ", client: ".len()..)?;
     let end_ip = after_client
         .find(',')
         .or_else(|| after_client.find(' '))
         .unwrap_or(after_client.len());
-    let ip_str = &after_client[..end_ip].trim();
+    let ip_str = after_client.get(..end_ip)?.trim();
     let client_ip: IpAddr = ip_str.parse().ok()?;
 
     let error_marker = "[error]";
     let start_reason = if let Some(err_idx) = line.find(error_marker) {
-        let after_err = &line[err_idx + error_marker.len()..];
-        if let Some(colon_idx) = after_err.find(": ") {
-            err_idx + error_marker.len() + colon_idx + 2
+        if let Some(after_err) = line.get(err_idx + error_marker.len()..) {
+            if let Some(colon_idx) = after_err.find(": ") {
+                err_idx + error_marker.len() + colon_idx + 2
+            } else {
+                err_idx + error_marker.len()
+            }
         } else {
-            err_idx + error_marker.len()
+            0
         }
     } else {
         0
     };
 
     let reason_slice = if start_reason < client_idx {
-        &line[start_reason..client_idx]
+        line.get(start_reason..client_idx).unwrap_or("")
     } else {
-        &line[..client_idx]
+        line.get(..client_idx).unwrap_or("")
     };
 
     let clean_reason = if let Some(pos) = reason_slice.find('*') {
-        if let Some(space_pos) = reason_slice[pos..].find(' ') {
-            &reason_slice[pos + space_pos + 1..]
+        if let Some(rest) = reason_slice.get(pos..) {
+            if let Some(space_pos) = rest.find(' ') {
+                reason_slice
+                    .get(pos + space_pos + 1..)
+                    .unwrap_or(reason_slice)
+            } else {
+                reason_slice
+            }
         } else {
             reason_slice
         }
