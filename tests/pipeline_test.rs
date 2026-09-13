@@ -455,3 +455,42 @@ fn test_cleanup_stale_strikes() {
         .as_secs();
     pipeline.cleanup_stale_strikes(now_secs + 100, 10);
 }
+
+#[test]
+fn test_user_agent_header_exploit_is_permanently_banned() {
+    let pipeline = ThreatPipeline::new_test_instance();
+    let ip: IpAddr = "203.0.113.80".parse().unwrap();
+    let act = pipeline.evaluate_request(
+        ip,
+        None,
+        "Mozilla/5.0 () { :; }; /bin/bash -c 'reboot'",
+        "GET",
+        "/",
+        200,
+        "",
+    );
+    assert_eq!(
+        act,
+        PipelineAction::Ban {
+            reason: "header_exploit:shellshock".into(),
+            permanent: true,
+        }
+    );
+}
+
+#[test]
+fn test_generic_tools_context_aware_probe_banning() {
+    let pipeline = ThreatPipeline::new_test_instance();
+    let ip: IpAddr = "203.0.113.81".parse().unwrap();
+    let act_ok = pipeline.evaluate_request(ip, None, "curl/7.68.0", "GET", "/health", 200, "");
+    assert_eq!(act_ok, PipelineAction::Allow);
+
+    let act_probe = pipeline.evaluate_request(ip, None, "curl/7.68.0", "GET", "/.env", 404, "");
+    assert_eq!(
+        act_probe,
+        PipelineAction::Ban {
+            reason: "probe:generic_tools:tool_probe".into(),
+            permanent: false,
+        }
+    );
+}

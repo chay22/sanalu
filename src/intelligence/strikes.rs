@@ -19,6 +19,8 @@ pub struct IpStrikeRecord {
     pub critical_strikes: u8,
     pub isolated_cat: u8,
     pub isolated_strikes: u8,
+    pub last_tool_secs: u64,
+    pub tool_strikes: u8,
 }
 
 pub struct IpStrikeTracker {
@@ -100,6 +102,35 @@ impl IpStrikeTracker {
         }
     }
 
+    pub fn record_tool_strike(
+        &self,
+        ip: IpAddr,
+        threshold: u8,
+        window_secs: u64,
+        now_secs: u64,
+    ) -> StrikeResult {
+        let idx = shard_index(&ip);
+        let mut lock = self.shards[idx].write().unwrap_or_else(|p| p.into_inner());
+        let record = lock.entry(ip).or_default();
+        if record.last_tool_secs != 0
+            && now_secs.saturating_sub(record.last_tool_secs) > window_secs
+        {
+            record.tool_strikes = 0;
+        }
+        record.tool_strikes = record.tool_strikes.saturating_add(1);
+        record.last_tool_secs = now_secs;
+        if record.tool_strikes >= threshold {
+            StrikeResult::ThresholdReached {
+                count: record.tool_strikes,
+            }
+        } else {
+            StrikeResult::UnderThreshold {
+                current: record.tool_strikes,
+                max: threshold,
+            }
+        }
+    }
+
     pub fn cleanup_stale(&self, now_secs: u64, max_idle_secs: u64) {
         for shard in &self.shards {
             let mut lock = shard.write().unwrap_or_else(|p| p.into_inner());
@@ -114,7 +145,14 @@ impl IpStrikeTracker {
                 } else {
                     now_secs.saturating_sub(rec.last_isolated_secs)
                 };
-                crit_idle <= max_idle_secs || iso_idle <= max_idle_secs
+                let tool_idle = if rec.last_tool_secs == 0 {
+                    u64::MAX
+                } else {
+                    now_secs.saturating_sub(rec.last_tool_secs)
+                };
+                crit_idle <= max_idle_secs
+                    || iso_idle <= max_idle_secs
+                    || tool_idle <= max_idle_secs
             });
         }
     }

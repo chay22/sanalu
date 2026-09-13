@@ -1,5 +1,6 @@
 use super::bot_category::BotCategory;
 use super::category::ThreatCategory;
+use super::header_exploit::inspect_header_exploits;
 use super::normalize::{NormalizedUri, normalize_request_uri};
 use super::probes::{ProbeMatcher, ThreatDecision, inspect_threat};
 use super::strikes::{IpStrikeTracker, StrikeResult};
@@ -175,6 +176,48 @@ impl ThreatPipeline {
         }
     }
 
+    fn evaluate_tool_request(
+        &self,
+        ip: IpAddr,
+        cat: BotCategory,
+        method: &str,
+        uri: &str,
+        status: u16,
+    ) -> PipelineAction {
+        match normalize_request_uri(uri) {
+            NormalizedUri::ImmediateMalicious(c) => PipelineAction::Ban {
+                reason: format!("probe:{}:immediate_malicious", c.as_str()),
+                permanent: false,
+            },
+            NormalizedUri::Clean(normalized_path) => {
+                if !self.probe_matcher.is_allowed_endpoint(uri) {
+                    let decision = inspect_threat(method, &normalized_path, status);
+                    if decision != ThreatDecision::Pass {
+                        return PipelineAction::Ban {
+                            reason: format!("probe:{}:tool_probe", cat.as_str()),
+                            permanent: false,
+                        };
+                    }
+                }
+                if (400..600).contains(&status) {
+                    let now = std::time::SystemTime::now()
+                        .duration_since(std::time::UNIX_EPOCH)
+                        .unwrap_or_default()
+                        .as_secs();
+                    match self.strike_tracker.record_tool_strike(ip, 10, 10, now) {
+                        StrikeResult::ThresholdReached { .. } => PipelineAction::Ban {
+                            reason: format!("tool_error_burst:{}", cat.as_str()),
+                            permanent: false,
+                        },
+                        StrikeResult::UnderThreshold { .. } => PipelineAction::Allow,
+                    }
+                } else {
+                    PipelineAction::Allow
+                }
+            }
+        }
+    }
+
     #[allow(clippy::too_many_arguments)]
     pub fn evaluate_request(
         &self,
@@ -198,8 +241,18 @@ impl ThreatPipeline {
             }
         }
 
+        if let Some(exp) = inspect_header_exploits(user_agent) {
+            return PipelineAction::Ban {
+                reason: format!("header_exploit:{}", exp),
+                permanent: true,
+            };
+        }
+
         let cat = self.ua_classifier.classify(user_agent);
         if self.blocked_categories.contains(&cat) {
+            if matches!(cat, BotCategory::GenericTools | BotCategory::Empty) {
+                return self.evaluate_tool_request(ip, cat, method, uri, status);
+            }
             return PipelineAction::Ban {
                 reason: format!("blocked_bot_category:{}", cat.as_str()),
                 permanent: false,
