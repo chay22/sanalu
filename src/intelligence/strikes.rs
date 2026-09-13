@@ -1,7 +1,10 @@
 use super::category::ThreatCategory;
 use std::collections::HashMap;
+use std::hash::{DefaultHasher, Hash, Hasher};
 use std::net::IpAddr;
 use std::sync::RwLock;
+
+const NUM_SHARDS: usize = 64;
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum StrikeResult {
@@ -11,21 +14,27 @@ pub enum StrikeResult {
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
 pub struct IpStrikeRecord {
-    pub critical_strikes: u8,
     pub last_critical_secs: u64,
+    pub last_isolated_secs: u64,
+    pub critical_strikes: u8,
     pub isolated_cat: u8,
     pub isolated_strikes: u8,
-    pub last_isolated_secs: u64,
 }
 
 pub struct IpStrikeTracker {
-    entries: RwLock<HashMap<IpAddr, IpStrikeRecord>>,
+    shards: [RwLock<HashMap<IpAddr, IpStrikeRecord>>; NUM_SHARDS],
+}
+
+fn shard_index(ip: &IpAddr) -> usize {
+    let mut hasher = DefaultHasher::new();
+    ip.hash(&mut hasher);
+    (hasher.finish() as usize) % NUM_SHARDS
 }
 
 impl IpStrikeTracker {
     pub fn new() -> Self {
         Self {
-            entries: RwLock::new(HashMap::new()),
+            shards: std::array::from_fn(|_| RwLock::new(HashMap::new())),
         }
     }
 
@@ -36,7 +45,8 @@ impl IpStrikeTracker {
         window_secs: u64,
         now_secs: u64,
     ) -> StrikeResult {
-        let mut lock = self.entries.write().unwrap();
+        let idx = shard_index(&ip);
+        let mut lock = self.shards[idx].write().unwrap();
         let record = lock.entry(ip).or_default();
         if record.last_critical_secs != 0
             && now_secs.saturating_sub(record.last_critical_secs) > window_secs
@@ -66,7 +76,8 @@ impl IpStrikeTracker {
         now_secs: u64,
     ) -> StrikeResult {
         let cat_u8 = cat.as_u8();
-        let mut lock = self.entries.write().unwrap();
+        let idx = shard_index(&ip);
+        let mut lock = self.shards[idx].write().unwrap();
         let record = lock.entry(ip).or_default();
         if record.isolated_cat != cat_u8
             || (record.last_isolated_secs != 0
@@ -90,39 +101,42 @@ impl IpStrikeTracker {
     }
 
     pub fn cleanup_stale(&self, now_secs: u64, max_idle_secs: u64) {
-        let mut lock = self.entries.write().unwrap();
-        lock.retain(|_, rec| {
-            let crit_idle = if rec.last_critical_secs == 0 {
-                u64::MAX
-            } else {
-                now_secs.saturating_sub(rec.last_critical_secs)
-            };
-            let iso_idle = if rec.last_isolated_secs == 0 {
-                u64::MAX
-            } else {
-                now_secs.saturating_sub(rec.last_isolated_secs)
-            };
-            crit_idle <= max_idle_secs || iso_idle <= max_idle_secs
-        });
+        for shard in &self.shards {
+            let mut lock = shard.write().unwrap();
+            lock.retain(|_, rec| {
+                let crit_idle = if rec.last_critical_secs == 0 {
+                    u64::MAX
+                } else {
+                    now_secs.saturating_sub(rec.last_critical_secs)
+                };
+                let iso_idle = if rec.last_isolated_secs == 0 {
+                    u64::MAX
+                } else {
+                    now_secs.saturating_sub(rec.last_isolated_secs)
+                };
+                crit_idle <= max_idle_secs || iso_idle <= max_idle_secs
+            });
+        }
     }
 
     pub fn clear_ip(&self, ip: &IpAddr) {
-        let mut lock = self.entries.write().unwrap();
+        let idx = shard_index(ip);
+        let mut lock = self.shards[idx].write().unwrap();
         lock.remove(ip);
     }
 
     pub fn get_record(&self, ip: &IpAddr) -> Option<IpStrikeRecord> {
-        let lock = self.entries.read().unwrap();
+        let idx = shard_index(ip);
+        let lock = self.shards[idx].read().unwrap();
         lock.get(ip).copied()
     }
 
     pub fn len(&self) -> usize {
-        let lock = self.entries.read().unwrap();
-        lock.len()
+        self.shards.iter().map(|s| s.read().unwrap().len()).sum()
     }
 
     pub fn is_empty(&self) -> bool {
-        self.len() == 0
+        self.shards.iter().all(|s| s.read().unwrap().is_empty())
     }
 }
 
