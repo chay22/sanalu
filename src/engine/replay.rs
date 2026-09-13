@@ -17,6 +17,7 @@ pub fn replay_log_file(log_path: &Path, allowed_endpoints: &[String]) -> Result<
     blocked_categories.insert(BotCategory::AiCrawler);
     blocked_categories.insert(BotCategory::BadScraper);
     blocked_categories.insert(BotCategory::GenericTools);
+    blocked_categories.insert(BotCategory::Empty);
 
     let pipeline = ThreatPipeline::new(
         HashSet::new(),

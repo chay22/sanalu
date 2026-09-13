@@ -11,6 +11,7 @@ pub enum BotCategory {
     SocialPreview,
     BadScraper,
     GenericTools,
+    Empty,
     BrowserOrUnknown,
 }
 
@@ -26,6 +27,7 @@ impl BotCategory {
             Self::SocialPreview => "social_preview",
             Self::BadScraper => "bad_scraper",
             Self::GenericTools => "generic_tools",
+            Self::Empty => "empty",
             Self::BrowserOrUnknown => "browser_or_unknown",
         }
     }
@@ -41,6 +43,7 @@ impl BotCategory {
             "social_preview" | "social" => Some(Self::SocialPreview),
             "bad_scraper" | "aggressive_seo" => Some(Self::BadScraper),
             "generic_tools" | "tools" => Some(Self::GenericTools),
+            "empty" | "missing" => Some(Self::Empty),
             "browser_or_unknown" | "unknown" => Some(Self::BrowserOrUnknown),
             _ => None,
         }
@@ -49,7 +52,7 @@ impl BotCategory {
     pub fn is_blocked_by_default(&self) -> bool {
         matches!(
             self,
-            Self::SecurityTesting | Self::BadScraper | Self::GenericTools
+            Self::SecurityTesting | Self::BadScraper | Self::GenericTools | Self::Empty
         )
     }
 }

@@ -59,6 +59,7 @@ impl ThreatPipeline {
         blocked_categories.insert(BotCategory::AiCrawler);
         blocked_categories.insert(BotCategory::BadScraper);
         blocked_categories.insert(BotCategory::GenericTools);
+        blocked_categories.insert(BotCategory::Empty);
 
         let allowed_patterns = vec![
             "^/api/.*".to_string(),
@@ -80,6 +81,10 @@ impl ThreatPipeline {
             probe_matcher,
             strike_tracker: IpStrikeTracker::new(),
         }
+    }
+
+    pub fn new_with_defaults() -> Self {
+        Self::new_test_instance()
     }
 
     fn evaluate_asn(&self, meta: &IpMetadata) -> Option<PipelineAction> {

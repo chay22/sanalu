@@ -13,10 +13,21 @@ fn test_bot_category_conversions() {
     );
     assert_eq!(BotCategory::from_str_name("unknown_cat"), None);
 
+    assert_eq!(BotCategory::Empty.as_str(), "empty");
+    assert_eq!(
+        BotCategory::from_str_name("empty"),
+        Some(BotCategory::Empty)
+    );
+    assert_eq!(
+        BotCategory::from_str_name("missing"),
+        Some(BotCategory::Empty)
+    );
+
     assert!(BotCategory::SecurityTesting.is_blocked_by_default());
     assert!(!BotCategory::AiCrawler.is_blocked_by_default());
     assert!(BotCategory::BadScraper.is_blocked_by_default());
     assert!(BotCategory::GenericTools.is_blocked_by_default());
+    assert!(BotCategory::Empty.is_blocked_by_default());
     assert!(!BotCategory::Search.is_blocked_by_default());
     assert!(!BotCategory::Monitoring.is_blocked_by_default());
 }
@@ -74,8 +85,9 @@ fn test_user_agent_classification() {
         classifier.classify("Go-http-client/1.1"),
         BotCategory::GenericTools
     );
-    assert_eq!(classifier.classify("-"), BotCategory::GenericTools);
-    assert_eq!(classifier.classify(""), BotCategory::GenericTools);
+    assert_eq!(classifier.classify("-"), BotCategory::Empty);
+    assert_eq!(classifier.classify(""), BotCategory::Empty);
+    assert_eq!(classifier.classify("   "), BotCategory::Empty);
 
     assert_eq!(
         classifier
@@ -107,4 +119,120 @@ fn test_user_agent_classification() {
         classifier.classify("Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36"),
         BotCategory::BrowserOrUnknown
     );
+}
+
+#[test]
+fn test_reference_scanners_classification() {
+    let classifier = UserAgentClassifier::new();
+
+    let security_scanners = [
+        "wp2shell",
+        "r00ts3c",
+        "vitesweep",
+        "metabase-cve",
+        "l9explore",
+        "l9tcpid",
+        "zmap",
+        "rawgrab",
+        "cgrab",
+        "masscan-ng",
+        "wanscanner",
+        "siteradar",
+        "rootevidence",
+        "qmx-internet",
+        "net-research",
+        "ai-exposure",
+        "host-probe",
+        "fhms-its",
+        "ffuf",
+        "feroxbuster",
+        "wfuzz",
+        "wpscan",
+        "commix",
+        "dsss",
+        "mozlila",
+        "mozila/",
+    ];
+
+    for ua in security_scanners {
+        assert_eq!(
+            classifier.classify(ua),
+            BotCategory::SecurityTesting,
+            "Failed for UA: {}",
+            ua
+        );
+    }
+}
+
+#[test]
+fn test_reference_crawlers_and_scrapers_classification() {
+    let classifier = UserAgentClassifier::new();
+
+    let ai_crawlers = ["duckassistbot", "agenttrustbot"];
+    for ua in ai_crawlers {
+        assert_eq!(
+            classifier.classify(ua),
+            BotCategory::AiCrawler,
+            "Failed for AI UA: {}",
+            ua
+        );
+    }
+
+    let bad_scrapers = [
+        "pandalytics",
+        "recordedfuture",
+        "techspybot",
+        "superbot",
+        "offline explorer",
+    ];
+    for ua in bad_scrapers {
+        assert_eq!(
+            classifier.classify(ua),
+            BotCategory::BadScraper,
+            "Failed for bad scraper UA: {}",
+            ua
+        );
+    }
+}
+
+#[test]
+fn test_reference_generic_tools_classification() {
+    let classifier = UserAgentClassifier::new();
+
+    let tools = [
+        "okhttp/4.9.3",
+        "fasthttp",
+        "dart/2.19 (dart:io)",
+        "alittle client",
+        "quic-go-client",
+        "libredtail",
+    ];
+    for ua in tools {
+        assert_eq!(
+            classifier.classify(ua),
+            BotCategory::GenericTools,
+            "Failed for tool UA: {}",
+            ua
+        );
+    }
+}
+
+#[test]
+fn test_system_and_mobile_services_classification() {
+    let classifier = UserAgentClassifier::new();
+
+    let services = [
+        "AuthenticationServicesCore",
+        "SamsungPass",
+        "NetworkingExtension",
+        "WordPress/6.4.3",
+    ];
+    for ua in services {
+        assert_eq!(
+            classifier.classify(ua),
+            BotCategory::BrowserOrUnknown,
+            "Failed for benign service UA: {}",
+            ua
+        );
+    }
 }

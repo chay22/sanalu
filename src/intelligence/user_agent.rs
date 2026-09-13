@@ -34,7 +34,7 @@ impl UserAgentClassifier {
     pub fn classify(&self, user_agent: &str) -> BotCategory {
         let trimmed = user_agent.trim();
         if trimmed.is_empty() || trimmed == "-" {
-            return BotCategory::GenericTools;
+            return BotCategory::Empty;
         }
 
         if let Some(mat) = self.matcher.find(trimmed) {

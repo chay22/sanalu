@@ -101,6 +101,7 @@ fn default_blocked_categories() -> Vec<String> {
         "security_testing".into(),
         "bad_scraper".into(),
         "generic_tools".into(),
+        "empty".into(),
     ]
 }
 
