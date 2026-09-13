@@ -9,11 +9,11 @@ use std::collections::{HashMap, HashSet};
 use std::path::{Path, PathBuf};
 use std::sync::Arc;
 use tokio::sync::mpsc;
-use tokio::task::JoinHandle;
+use tokio::task::AbortHandle;
 
 pub struct ActiveWatcher {
     pub format: CompiledLogFormat,
-    pub handle: JoinHandle<()>,
+    pub abort_handle: AbortHandle,
 }
 
 #[derive(Default)]
@@ -56,7 +56,7 @@ impl NginxWatcherRegistry {
 
     pub fn abort_all(&mut self) {
         for watcher in self.watchers.values() {
-            watcher.handle.abort();
+            watcher.abort_handle.abort();
         }
         self.watchers.clear();
     }
@@ -90,7 +90,7 @@ impl NginxWatcherRegistry {
             discovered.iter().map(|l| l.path.as_path()).collect();
         self.watchers.retain(|path, watcher| {
             if !discovered_paths.contains(path.as_path()) {
-                watcher.handle.abort();
+                watcher.abort_handle.abort();
                 report.removed += 1;
                 false
             } else {
@@ -108,7 +108,7 @@ impl NginxWatcherRegistry {
         let compiled = log.format_kind.to_compiled();
         if let Some(existing) = self.watchers.get_mut(&log.path) {
             if existing.format != compiled {
-                existing.handle.abort();
+                existing.abort_handle.abort();
                 let handle = spawn_nginx_watcher(
                     log.path.clone(),
                     compiled.clone(),
@@ -119,7 +119,7 @@ impl NginxWatcherRegistry {
                     deps.geo_db.clone(),
                 );
                 existing.format = compiled;
-                existing.handle = handle;
+                existing.abort_handle = handle.abort_handle();
                 report.updated += 1;
             } else {
                 report.unchanged += 1;
@@ -138,7 +138,7 @@ impl NginxWatcherRegistry {
                 log.path.clone(),
                 ActiveWatcher {
                     format: compiled,
-                    handle,
+                    abort_handle: handle.abort_handle(),
                 },
             );
             report.added += 1;
