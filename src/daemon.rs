@@ -93,7 +93,9 @@ async fn wait_for_daemon_events(
             _ = async {
                 match sighup.as_mut() {
                     Some(sh) => {
-                        let _ = sh.recv().await;
+                        if sh.recv().await.is_none() {
+                            std::future::pending().await
+                        }
                     }
                     None => std::future::pending().await,
                 }

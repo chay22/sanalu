@@ -88,19 +88,15 @@ impl NginxWatcherRegistry {
     fn prune_missing(&mut self, discovered: &[DiscoveredNginxLog], report: &mut ReconcileReport) {
         let discovered_paths: HashSet<&Path> =
             discovered.iter().map(|l| l.path.as_path()).collect();
-        let to_remove: Vec<PathBuf> = self
-            .watchers
-            .keys()
-            .filter(|p| !discovered_paths.contains(p.as_path()))
-            .cloned()
-            .collect();
-
-        for path in to_remove {
-            if let Some(watcher) = self.watchers.remove(&path) {
+        self.watchers.retain(|path, watcher| {
+            if !discovered_paths.contains(path.as_path()) {
                 watcher.handle.abort();
                 report.removed += 1;
+                false
+            } else {
+                true
             }
-        }
+        });
     }
 
     fn reconcile_single_log(
