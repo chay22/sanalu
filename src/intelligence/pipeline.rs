@@ -1,10 +1,12 @@
 use super::bot_category::BotCategory;
+use super::category::ThreatCategory;
 use super::normalize::{NormalizedUri, normalize_request_uri};
 use super::probes::{ProbeMatcher, ThreatDecision, inspect_threat};
 use super::strikes::{IpStrikeTracker, StrikeResult};
 use super::user_agent::UserAgentClassifier;
 use crate::error::SanaluError;
 use crate::geo::IpMetadata;
+use crate::parser::SshEvent;
 use std::collections::HashSet;
 use std::net::IpAddr;
 
@@ -230,6 +232,49 @@ impl ThreatPipeline {
 
     pub fn cleanup_stale_strikes(&self, now_secs: u64, max_idle_secs: u64) {
         self.strike_tracker.cleanup_stale(now_secs, max_idle_secs);
+    }
+
+    pub fn evaluate_ssh_event(&self, event: &SshEvent) -> PipelineAction {
+        match event {
+            SshEvent::Ignore => PipelineAction::Allow,
+            SshEvent::ScannerProbe { ip, reason } => {
+                if crate::is_loopback_or_private(*ip) || self.whitelisted_ips.contains(ip) {
+                    return PipelineAction::Allow;
+                }
+                if self.banned_ips.contains(ip) {
+                    return PipelineAction::DropBanned;
+                }
+                PipelineAction::Ban {
+                    reason: format!("probe:ssh:{}", reason),
+                    permanent: false,
+                }
+            }
+            SshEvent::AuthFailure { ip, user: _ } => {
+                if crate::is_loopback_or_private(*ip) || self.whitelisted_ips.contains(ip) {
+                    return PipelineAction::Allow;
+                }
+                if self.banned_ips.contains(ip) {
+                    return PipelineAction::DropBanned;
+                }
+                let now_secs = std::time::SystemTime::now()
+                    .duration_since(std::time::UNIX_EPOCH)
+                    .unwrap_or_default()
+                    .as_secs();
+                match self.strike_tracker.record_isolated_strike(
+                    *ip,
+                    ThreatCategory::Common,
+                    5,
+                    300,
+                    now_secs,
+                ) {
+                    StrikeResult::ThresholdReached { count } => PipelineAction::Ban {
+                        reason: format!("probe:ssh:auth_failures:{}", count),
+                        permanent: false,
+                    },
+                    StrikeResult::UnderThreshold { .. } => PipelineAction::Allow,
+                }
+            }
+        }
     }
 }
 

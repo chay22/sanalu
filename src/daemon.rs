@@ -16,7 +16,7 @@ pub use crate::discovery::is_root;
 pub use crate::engine::{
     ActiveWatcher, NginxWatcherRegistry, ReconcileReport, build_pipeline_from_config,
     build_pipeline_from_store, get_effective_allowed_regions, get_effective_blocked_asns,
-    get_effective_blocked_categories, replay_log_file,
+    get_effective_blocked_categories, replay_log_file, spawn_ssh_watcher,
 };
 
 fn ensure_data_dir(db_path: &Path) {
@@ -208,16 +208,18 @@ pub async fn run_daemon(config_path: &Path, dry_run_cli: bool) -> Result<(), San
         );
     }
 
-    wait_for_daemon_events(
-        &mut registry,
-        &pipeline,
-        &firewall,
-        &store,
-        &cf_tx,
-        &geo_db,
-    )
-    .await?;
+    let ssh_handle = spawn_ssh_watcher(
+        env_disc.ssh_source,
+        pipeline.clone(),
+        firewall.clone(),
+        store.clone(),
+        cf_tx.clone(),
+        geo_db.clone(),
+    );
 
+    wait_for_daemon_events(&mut registry, &pipeline, &firewall, &store, &cf_tx, &geo_db).await?;
+
+    ssh_handle.abort();
     registry.abort_all();
 
     if socket_path.exists() {

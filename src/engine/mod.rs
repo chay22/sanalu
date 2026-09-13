@@ -3,6 +3,7 @@ pub mod pipeline;
 pub mod policy;
 pub mod registry;
 pub mod replay;
+pub mod ssh;
 pub mod watcher;
 
 pub use escalation::{BanRecord, EscalationEngine};
@@ -12,4 +13,5 @@ pub use policy::{
 };
 pub use registry::{ActiveWatcher, NginxWatcherRegistry, ReconcileReport};
 pub use replay::replay_log_file;
+pub use ssh::spawn_ssh_watcher;
 pub use watcher::spawn_nginx_watcher;
