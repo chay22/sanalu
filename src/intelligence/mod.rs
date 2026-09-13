@@ -1,6 +1,7 @@
 pub mod blacklist_conf;
 pub mod bot_category;
 pub mod category;
+pub mod header_exploit;
 pub mod normalize;
 pub mod patterns;
 pub mod pipeline;
@@ -11,6 +12,7 @@ pub mod user_agent;
 pub use blacklist_conf::BlacklistConfigData;
 pub use bot_category::BotCategory;
 pub use category::ThreatCategory;
+pub use header_exploit::inspect_header_exploits;
 pub use normalize::{NormalizedUri, normalize_request_uri};
 pub use pipeline::{PipelineAction, ThreatPipeline};
 pub use probes::{ProbeMatcher, ProbeResult, ThreatDecision, inspect_threat};
