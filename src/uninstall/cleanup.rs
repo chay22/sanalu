@@ -81,18 +81,28 @@ pub fn remove_completions<W: Write>(out: &mut W, dry_run: bool) -> Result<(), Sa
 pub fn remove_data_dir<W: Write>(
     out: &mut W,
     db_path: &Path,
+    purge: bool,
     dry_run: bool,
 ) -> Result<(), SanaluError> {
     let data_dir = db_path
         .parent()
         .unwrap_or_else(|| Path::new("/var/lib/sanalu"));
-    if data_dir.exists() {
+    if !data_dir.exists() {
+        return Ok(());
+    }
+    if purge {
         if dry_run {
-            let _ = writeln!(out, "[dry-run] Would remove data directory: {:?}", data_dir);
+            let _ = writeln!(out, "[dry-run] Would purge data directory: {:?}", data_dir);
         } else {
             std::fs::remove_dir_all(data_dir)?;
-            let _ = writeln!(out, "[x] Removed data directory: {:?}", data_dir);
+            let _ = writeln!(out, "[x] Purged data directory: {:?}", data_dir);
         }
+    } else {
+        let _ = writeln!(
+            out,
+            "[i] Preserved database and data directory at {:?}. (Pass '--purge' to delete data).",
+            data_dir
+        );
     }
     Ok(())
 }

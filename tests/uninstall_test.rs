@@ -85,8 +85,50 @@ fn test_uninstall_dry_run_safety() {
     let output_str = String::from_utf8_lossy(&output);
     assert!(output_str.contains("Dry-run mode"));
     assert!(output_str.contains("Would purge configuration directory"));
-    assert!(output_str.contains("Would remove data directory"));
+    assert!(output_str.contains("Would purge data directory"));
 
+    assert!(config_file.exists());
+    assert!(db_file.exists());
+}
+
+#[test]
+fn test_uninstall_dry_run_preserves_without_purge() {
+    let temp_dir = tempfile::tempdir().unwrap();
+    let config_dir = temp_dir.path().join("etc_sanalu");
+    let data_dir = temp_dir.path().join("var_lib_sanalu");
+
+    std::fs::create_dir_all(&config_dir).unwrap();
+    std::fs::create_dir_all(&data_dir).unwrap();
+
+    let config_file = config_dir.join("sanalu.toml");
+    let db_file = data_dir.join("sanalu.redb");
+
+    std::fs::write(&config_file, "general.whitelist = []\n").unwrap();
+    std::fs::write(&db_file, b"test redb content").unwrap();
+
+    let mut config = AppConfig::default();
+    config.general.db_path = db_file.clone();
+
+    let mut output = Vec::new();
+    let options = UninstallOptions {
+        purge: false,
+        clean_cloudflare: false,
+        dry_run: true,
+    };
+
+    let result = tokio::runtime::Runtime::new()
+        .unwrap()
+        .block_on(execute_uninstall(
+            &mut output,
+            &config_file,
+            &config,
+            &options,
+        ));
+
+    assert!(result.is_ok());
+    let output_str = String::from_utf8_lossy(&output);
+    assert!(output_str.contains("Preserved configuration"));
+    assert!(output_str.contains("Preserved database and data directory"));
     assert!(config_file.exists());
     assert!(db_file.exists());
 }
@@ -106,9 +148,18 @@ fn test_uninstall_data_and_config_removal() {
     std::fs::write(&config_file, "config").unwrap();
     std::fs::write(&db_file, "db").unwrap();
 
-    let mut out = Vec::new();
-    assert!(remove_data_dir(&mut out, &db_file, false).is_ok());
+    let mut out_data_keep = Vec::new();
+    assert!(remove_data_dir(&mut out_data_keep, &db_file, false, false).is_ok());
+    assert!(data_dir.exists());
+    assert!(db_file.exists());
+    let keep_data_str = String::from_utf8_lossy(&out_data_keep);
+    assert!(keep_data_str.contains("Preserved database"));
+
+    let mut out_data_purge = Vec::new();
+    assert!(remove_data_dir(&mut out_data_purge, &db_file, true, false).is_ok());
     assert!(!data_dir.exists());
+    let purge_data_str = String::from_utf8_lossy(&out_data_purge);
+    assert!(purge_data_str.contains("Purged data directory"));
 
     let mut out_keep = Vec::new();
     assert!(remove_config_dir(&mut out_keep, &config_file, false, false).is_ok());

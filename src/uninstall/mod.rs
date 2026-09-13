@@ -70,7 +70,7 @@ pub async fn execute_uninstall<W: Write>(
         clean_cloudflare(out, config, options.dry_run).await?;
     }
 
-    remove_data_dir(out, &config.general.db_path, options.dry_run)?;
+    remove_data_dir(out, &config.general.db_path, options.purge, options.dry_run)?;
     remove_config_dir(out, config_path, options.purge, options.dry_run)?;
     remove_binary_files(out, options.dry_run)?;
 
