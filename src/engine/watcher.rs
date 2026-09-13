@@ -129,16 +129,7 @@ pub fn spawn_nginx_watcher(
                 }
                 Ok(_) => {
                     current_offset += line.len() as u64;
-                    process_log_line(
-                        &line,
-                        &format,
-                        &pipe,
-                        &fw,
-                        &st,
-                        cf.as_ref(),
-                        &geo,
-                    )
-                    .await;
+                    process_log_line(&line, &format, &pipe, &fw, &st, cf.as_ref(), &geo).await;
                 }
                 Err(_) => {
                     tokio::time::sleep(Duration::from_millis(500)).await;

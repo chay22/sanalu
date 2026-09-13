@@ -161,4 +161,3 @@ async fn test_file_truncation_detected() {
     assert!(store.get_ban("203.0.113.40").unwrap().is_some());
     handle.abort();
 }
-
