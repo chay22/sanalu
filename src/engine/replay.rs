@@ -38,12 +38,14 @@ pub fn replay_log_file(log_path: &Path, allowed_endpoints: &[String]) -> Result<
         };
 
         if let Some(entry) = parse_nginx_combined_line(&line) {
-            let action = pipeline.evaluate(
+            let action = pipeline.evaluate_request(
                 entry.client_ip,
                 None,
                 entry.user_agent,
                 entry.method,
                 entry.path,
+                entry.status,
+                entry.referer,
             );
             if let PipelineAction::Ban { reason, permanent } = action {
                 threat_count += 1;
@@ -60,8 +62,9 @@ pub fn replay_log_file(log_path: &Path, allowed_endpoints: &[String]) -> Result<
             continue;
         }
 
-        if let Some((client_ip, method, uri, _, _, ua)) = parse_nginx_json_line(&line) {
-            let action = pipeline.evaluate(client_ip, None, &ua, &method, &uri);
+        if let Some((client_ip, method, uri, status, referer, ua)) = parse_nginx_json_line(&line) {
+            let action =
+                pipeline.evaluate_request(client_ip, None, &ua, &method, &uri, status, &referer);
             if let PipelineAction::Ban { reason, permanent } = action {
                 threat_count += 1;
                 if let Err(e) = writeln!(
@@ -78,24 +81,23 @@ pub fn replay_log_file(log_path: &Path, allowed_endpoints: &[String]) -> Result<
         }
 
         let ssh_ev = ssh_parser.process_line(&line);
-        match ssh_ev {
-            SshEvent::ScannerProbe { ip, reason } => {
-                threat_count += 1;
-                if let Err(e) = writeln!(stdout, "[SSH SCANNER] IP: {} | Reason: {}", ip, reason) {
-                    if e.kind() == std::io::ErrorKind::BrokenPipe {
-                        return Ok(threat_count);
-                    }
+        let action = pipeline.evaluate_ssh_event(&ssh_ev);
+        if let PipelineAction::Ban { reason, permanent } = action {
+            threat_count += 1;
+            let ip = match ssh_ev {
+                SshEvent::ScannerProbe { ip, .. } => ip,
+                SshEvent::AuthFailure { ip, .. } => ip,
+                SshEvent::Ignore => continue,
+            };
+            if let Err(e) = writeln!(
+                stdout,
+                "[SSH THREAT] IP: {} | Action: BAN (permanent={}) | Reason: {}",
+                ip, permanent, reason
+            ) {
+                if e.kind() == std::io::ErrorKind::BrokenPipe {
+                    return Ok(threat_count);
                 }
             }
-            SshEvent::AuthFailure { ip, user } => {
-                threat_count += 1;
-                if let Err(e) = writeln!(stdout, "[SSH AUTH FAIL] IP: {} | User: {}", ip, user) {
-                    if e.kind() == std::io::ErrorKind::BrokenPipe {
-                        return Ok(threat_count);
-                    }
-                }
-            }
-            SshEvent::Ignore => {}
         }
     }
 
