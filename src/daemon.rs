@@ -46,6 +46,18 @@ fn sync_asn_fallback(
     }
 }
 
+pub fn restore_active_bans(
+    store: &RedbStore,
+    firewall: &NftablesBackend,
+) -> Result<usize, SanaluError> {
+    let active_bans = store.list_active_bans()?;
+    let targets: Vec<String> = active_bans.into_iter().map(|b| b.target).collect();
+    if !targets.is_empty() {
+        firewall.ban_targets_batch(&targets)?;
+    }
+    Ok(targets.len())
+}
+
 fn reconcile_watchers(
     registry: &mut NginxWatcherRegistry,
     pipeline: &Arc<ThreatPipeline>,
@@ -181,6 +193,11 @@ pub async fn run_daemon(config_path: &Path, dry_run_cli: bool) -> Result<(), San
 
     let firewall = Arc::new(NftablesBackend::auto_detect(dry_run));
     firewall.init_tables()?;
+
+    let restored_bans = restore_active_bans(&store, &firewall).unwrap_or(0);
+    if restored_bans > 0 {
+        println!("Restored {} active bans into firewall", restored_bans);
+    }
 
     if !config.general.ip_db_path.exists() {
         println!(
