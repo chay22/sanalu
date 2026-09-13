@@ -246,25 +246,32 @@ fn inspect_dotfiles_ssh(method: &str, path: &str, status: u16) -> Option<ThreatD
     None
 }
 
+const IDE_DIRS: &[&str] = &[
+    "/.vscode/",
+    "/.idea/",
+    "/.zed/",
+    "/.xcodeproj/",
+    "/.xcworkspace/",
+    "/.vs/",
+    "/.userprefs/",
+    "/.fleet/",
+    "/.cursor/",
+    "/.helix/",
+    "/.vim/",
+    "/.nvim/",
+    "/.gradle/",
+];
+
+const IDE_FILES: &[&str] = &[
+    "/.sln.docstates",
+    "/.sublime-project",
+    "/.sublime-workspace",
+    "/.cursorrules",
+    "/.windsurfrules",
+];
+
 fn is_ide_dotfile(path: &str) -> bool {
-    path.contains("/.vscode/")
-        || path.contains("/.idea/")
-        || path.contains("/.zed/")
-        || path.contains("/.xcodeproj/")
-        || path.contains("/.xcworkspace/")
-        || path.contains("/.vs/")
-        || path.contains("/.userprefs/")
-        || path.ends_with("/.sln.docstates")
-        || path.contains("/.fleet/")
-        || path.ends_with("/.sublime-project")
-        || path.ends_with("/.sublime-workspace")
-        || path.contains("/.cursor/")
-        || path.ends_with("/.cursorrules")
-        || path.ends_with("/.windsurfrules")
-        || path.contains("/.helix/")
-        || path.contains("/.vim/")
-        || path.contains("/.nvim/")
-        || path.contains("/.gradle/")
+    IDE_DIRS.iter().any(|&dir| path.contains(dir)) || IDE_FILES.iter().any(|&f| path.ends_with(f))
 }
 
 fn inspect_dotfiles_ide(path: &str, status: u16) -> Option<ThreatDecision> {
@@ -620,25 +627,7 @@ fn inspect_common_error(method: &str, path: &str, status: u16) -> Option<ThreatD
     None
 }
 
-fn inspect_php(method: &str, path: &str, status: u16) -> Option<ThreatDecision> {
-    if path.contains("/cgi-bin/") && status != 200 {
-        if is_get_or_head(method) {
-            return Some(ThreatDecision::SharedStrike {
-                category: ThreatCategory::Php,
-                threshold: 3,
-                window_secs: 10,
-            });
-        }
-        return Some(ThreatDecision::InstantBan(ThreatCategory::Php));
-    }
-    if path.contains("/phpinfo") && status != 200 {
-        return Some(ThreatDecision::InstantBan(ThreatCategory::Php));
-    }
-    if (path.ends_with(".php~") || path.ends_with(".php.old") || path.ends_with(".php.save"))
-        && status != 200
-    {
-        return Some(ThreatDecision::InstantBan(ThreatCategory::Php));
-    }
+fn inspect_php_admin_or_script(method: &str, path: &str, status: u16) -> Option<ThreatDecision> {
     if (path.contains("/phpmyadmin")
         || path.contains("/pma")
         || path.contains("/mysqladmin")
@@ -671,6 +660,53 @@ fn inspect_php(method: &str, path: &str, status: u16) -> Option<ThreatDecision> 
     None
 }
 
+fn inspect_php(method: &str, path: &str, status: u16) -> Option<ThreatDecision> {
+    if path.contains("/cgi-bin/") && status != 200 {
+        if is_get_or_head(method) {
+            return Some(ThreatDecision::SharedStrike {
+                category: ThreatCategory::Php,
+                threshold: 3,
+                window_secs: 10,
+            });
+        }
+        return Some(ThreatDecision::InstantBan(ThreatCategory::Php));
+    }
+    if path.contains("/phpinfo") && status != 200 {
+        return Some(ThreatDecision::InstantBan(ThreatCategory::Php));
+    }
+    if (path.ends_with(".php~") || path.ends_with(".php.old") || path.ends_with(".php.save"))
+        && status != 200
+    {
+        return Some(ThreatDecision::InstantBan(ThreatCategory::Php));
+    }
+    inspect_php_admin_or_script(method, path, status)
+}
+
+fn inspect_stage4_error_traffic(method: &str, path: &str, status: u16) -> Option<ThreatDecision> {
+    if let Some(decision) = inspect_wordpress(method, path, status) {
+        return Some(decision);
+    }
+    if let Some(decision) = inspect_actuator(path, status) {
+        return Some(decision);
+    }
+    if let Some(decision) = inspect_laravel(path, status) {
+        return Some(decision);
+    }
+    if let Some(decision) = inspect_webmail(path, status) {
+        return Some(decision);
+    }
+    if let Some(decision) = inspect_backups(path, status) {
+        return Some(decision);
+    }
+    if let Some(decision) = inspect_cloud_or_ssh_standalone(method, path, status) {
+        return Some(decision);
+    }
+    if let Some(decision) = inspect_common_error(method, path, status) {
+        return Some(decision);
+    }
+    inspect_php(method, path, status)
+}
+
 pub fn inspect_threat(method: &str, path: &str, status: u16) -> ThreatDecision {
     if path.starts_with("/.well-known/") && (200..=399).contains(&status) {
         return ThreatDecision::Pass;
@@ -686,29 +722,5 @@ pub fn inspect_threat(method: &str, path: &str, status: u16) -> ThreatDecision {
     if status == 200 || status == 304 {
         return ThreatDecision::Pass;
     }
-    if let Some(decision) = inspect_wordpress(method, path, status) {
-        return decision;
-    }
-    if let Some(decision) = inspect_actuator(path, status) {
-        return decision;
-    }
-    if let Some(decision) = inspect_laravel(path, status) {
-        return decision;
-    }
-    if let Some(decision) = inspect_webmail(path, status) {
-        return decision;
-    }
-    if let Some(decision) = inspect_backups(path, status) {
-        return decision;
-    }
-    if let Some(decision) = inspect_cloud_or_ssh_standalone(method, path, status) {
-        return decision;
-    }
-    if let Some(decision) = inspect_common_error(method, path, status) {
-        return decision;
-    }
-    if let Some(decision) = inspect_php(method, path, status) {
-        return decision;
-    }
-    ThreatDecision::Pass
+    inspect_stage4_error_traffic(method, path, status).unwrap_or(ThreatDecision::Pass)
 }

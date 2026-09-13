@@ -7,24 +7,32 @@ pub enum NormalizedUri<'a> {
     ImmediateMalicious(ThreatCategory),
 }
 
+const MALICIOUS_PATTERNS: &[&str] = &[
+    "%00", "\0", "%0d%0a", "%0D%0A", "%0d", "%0D", "%0a", "%0A", "\r", "\n",
+];
+
 #[inline]
 fn contains_malicious(s: &str) -> bool {
-    s.contains("%00")
-        || s.contains('\0')
-        || s.contains("%0d%0a")
-        || s.contains("%0D%0A")
-        || s.contains("%0d")
-        || s.contains("%0D")
-        || s.contains("%0a")
-        || s.contains("%0A")
-        || s.contains('\r')
-        || s.contains('\n')
+    MALICIOUS_PATTERNS.iter().any(|pat| s.contains(pat))
 }
 
 #[inline]
 fn push_slash(out: &mut Vec<u8>) {
     if out.last() != Some(&b'/') {
         out.push(b'/');
+    }
+}
+
+#[inline]
+fn try_decode_escape(b1: u8, b2: u8) -> Option<u8> {
+    if b1 == b'2' && (b2 == b'f' || b2 == b'F') {
+        Some(b'/')
+    } else if b1 == b'2' && (b2 == b'e' || b2 == b'E') {
+        Some(b'.')
+    } else if b1 == b'5' && (b2 == b'c' || b2 == b'C') {
+        Some(b'/')
+    } else {
+        None
     }
 }
 
@@ -35,20 +43,12 @@ fn decode_and_collapse(raw: &str) -> String {
     while i < bytes.len() {
         let b = bytes[i];
         if b == b'%' && i + 2 < bytes.len() {
-            let b1 = bytes[i + 1];
-            let b2 = bytes[i + 2];
-            if b1 == b'2' && (b2 == b'f' || b2 == b'F') {
-                push_slash(&mut out);
-                i += 3;
-                continue;
-            }
-            if b1 == b'2' && (b2 == b'e' || b2 == b'E') {
-                out.push(b'.');
-                i += 3;
-                continue;
-            }
-            if b1 == b'5' && (b2 == b'c' || b2 == b'C') {
-                push_slash(&mut out);
+            if let Some(decoded) = try_decode_escape(bytes[i + 1], bytes[i + 2]) {
+                if decoded == b'/' {
+                    push_slash(&mut out);
+                } else {
+                    out.push(decoded);
+                }
                 i += 3;
                 continue;
             }
