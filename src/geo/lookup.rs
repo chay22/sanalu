@@ -35,6 +35,14 @@ impl IpLookupDb {
         }
     }
 
+    pub fn len(&self) -> usize {
+        self.entries_v4.len()
+    }
+
+    pub fn is_empty(&self) -> bool {
+        self.entries_v4.is_empty()
+    }
+
     pub fn from_tsv_reader<R: BufRead>(reader: R) -> Result<Self, SanaluError> {
         let mut entries = Vec::new();
         for line in reader.lines() {

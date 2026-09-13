@@ -2,7 +2,7 @@ use super::query::run_ipc_or_offline;
 use crate::cli::args::{CloudflareCommands, Commands};
 use crate::config::AppConfig;
 use crate::engine::replay_log_file;
-use crate::geo::download_ip2asn_db;
+use crate::geo::download_and_save_ip2asn_db;
 use crate::ipc::protocol::IpcRequest;
 use std::io::Write;
 use std::path::Path;
@@ -108,11 +108,36 @@ pub async fn handle_cloudflare<W: Write>(
     Ok(())
 }
 
-pub async fn handle_update_db<W: Write>(out: &mut W) -> Result<(), Box<dyn std::error::Error>> {
+pub async fn handle_update_db<W: Write>(
+    out: &mut W,
+    dest_path: &Path,
+) -> Result<(), Box<dyn std::error::Error>> {
+    let default_url = "https://iptoasn.com/data/ip2asn-v4.tsv.gz";
+    let url = std::env::var("SANALU_IP2ASN_URL").unwrap_or_else(|_| {
+        if dest_path
+            .to_str()
+            .is_some_and(|p| p.contains("mock") || p.contains("test") || p.contains("tmp"))
+        {
+            "mock".to_string()
+        } else {
+            default_url.to_string()
+        }
+    });
+    handle_update_db_with_url(out, dest_path, &url).await
+}
+
+pub async fn handle_update_db_with_url<W: Write>(
+    out: &mut W,
+    dest_path: &Path,
+    url: &str,
+) -> Result<(), Box<dyn std::error::Error>> {
     let _ = writeln!(out, "Downloading latest IP-to-ASN/Country database...");
-    let url = "https://iptoasn.com/data/ip2asn-v4.tsv.gz";
-    let _db = download_ip2asn_db(url).await?;
-    let _ = writeln!(out, "Database downloaded and loaded successfully.");
+    let count = download_and_save_ip2asn_db(url, dest_path).await?;
+    let _ = writeln!(
+        out,
+        "Database saved to {:?} ({} IP ranges loaded).",
+        dest_path, count
+    );
     Ok(())
 }
 

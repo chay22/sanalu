@@ -83,7 +83,7 @@ pub async fn dispatch_cli<W: Write>(
             handle_discover(out);
         }
         Commands::UpdateDb => {
-            handle_update_db(out).await?;
+            handle_update_db(out, &config.general.ip_db_path).await?;
         }
         Commands::TestLog { path } => {
             handle_test_log(out, path, &config.nginx.allowed_endpoints)?;
