@@ -52,7 +52,10 @@ fn test_isolated_strikes_do_not_contaminate_critical_pool() {
 
     let iso_res1 =
         tracker.record_isolated_strike(ip, ThreatCategory::Backups, threshold, window_secs, now);
-    assert_eq!(iso_res1, StrikeResult::UnderThreshold { current: 1, max: 3 });
+    assert_eq!(
+        iso_res1,
+        StrikeResult::UnderThreshold { current: 1, max: 3 }
+    );
 
     let iso_res2 = tracker.record_isolated_strike(
         ip,
@@ -61,7 +64,10 @@ fn test_isolated_strikes_do_not_contaminate_critical_pool() {
         window_secs,
         now + 5,
     );
-    assert_eq!(iso_res2, StrikeResult::UnderThreshold { current: 2, max: 3 });
+    assert_eq!(
+        iso_res2,
+        StrikeResult::UnderThreshold { current: 2, max: 3 }
+    );
 
     let record = tracker.get_record(&ip).unwrap();
     assert_eq!(record.critical_strikes, 0);
@@ -71,7 +77,10 @@ fn test_isolated_strikes_do_not_contaminate_critical_pool() {
     assert_eq!(record.last_isolated_secs, now + 5);
 
     let crit_res = tracker.record_shared_strike(ip, threshold, window_secs, now + 10);
-    assert_eq!(crit_res, StrikeResult::UnderThreshold { current: 1, max: 3 });
+    assert_eq!(
+        crit_res,
+        StrikeResult::UnderThreshold { current: 1, max: 3 }
+    );
 
     let record_after = tracker.get_record(&ip).unwrap();
     assert_eq!(record_after.critical_strikes, 1);
@@ -93,7 +102,8 @@ fn test_isolated_strikes_category_switch_resets_isolated_count() {
     assert_eq!(rec1.isolated_strikes, 2);
     assert_eq!(rec1.isolated_cat, ThreatCategory::Backups.as_u8());
 
-    let res = tracker.record_isolated_strike(ip, ThreatCategory::Php, threshold, window_secs, now + 2);
+    let res =
+        tracker.record_isolated_strike(ip, ThreatCategory::Php, threshold, window_secs, now + 2);
     assert_eq!(res, StrikeResult::UnderThreshold { current: 1, max: 3 });
 
     let rec2 = tracker.get_record(&ip).unwrap();
@@ -112,7 +122,8 @@ fn test_isolated_strikes_window_expiration() {
     tracker.record_isolated_strike(ip, ThreatCategory::Php, threshold, window_secs, now);
     tracker.record_isolated_strike(ip, ThreatCategory::Php, threshold, window_secs, now + 10);
 
-    let res = tracker.record_isolated_strike(ip, ThreatCategory::Php, threshold, window_secs, now + 75);
+    let res =
+        tracker.record_isolated_strike(ip, ThreatCategory::Php, threshold, window_secs, now + 75);
     assert_eq!(res, StrikeResult::UnderThreshold { current: 1, max: 3 });
 }
 

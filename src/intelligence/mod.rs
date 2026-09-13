@@ -13,6 +13,6 @@ pub use bot_category::BotCategory;
 pub use category::ThreatCategory;
 pub use normalize::{NormalizedUri, normalize_request_uri};
 pub use pipeline::{PipelineAction, ThreatPipeline};
-pub use probes::{ProbeMatcher, ProbeResult};
+pub use probes::{ProbeMatcher, ProbeResult, ThreatDecision, inspect_threat};
 pub use strikes::{IpStrikeRecord, IpStrikeTracker, StrikeResult};
 pub use user_agent::UserAgentClassifier;
