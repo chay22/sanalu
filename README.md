@@ -97,8 +97,10 @@ On first run, `sanalu` automatically does all the heavy lifting in < 5ms:
 
 ```bash
 sudo dpkg -i sanalu_*_amd64.deb
-sudo systemctl enable --now sanalu
 ```
+
+*The Debian package includes maintainer scripts that automatically register, enable, and start the `sanalu.service` systemd daemon upon installation. Upgrades seamlessly restart the service without overwriting customized configuration or active threat databases.*
+
 
 ### Option 3: Build from Source
 

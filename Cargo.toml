@@ -46,6 +46,7 @@ assets = [
     ["dist/completions/sanalu", "usr/share/bash-completion/completions/sanalu", "644"],
 ]
 conf-files = ["/etc/sanalu/sanalu.toml"]
+maintainer-scripts = "dist/debian"
 
 [profile.release]
 opt-level = 3

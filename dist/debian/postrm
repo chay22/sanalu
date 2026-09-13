@@ -1,0 +1,22 @@
+#!/bin/sh
+set -e
+
+if [ "$1" = "remove" ]; then
+    if [ -d /run/systemd/system ]; then
+        systemctl --system daemon-reload >/dev/null 2>&1 || true
+    fi
+fi
+
+if [ "$1" = "purge" ]; then
+    if [ -d /run/systemd/system ]; then
+        systemctl --system daemon-reload >/dev/null 2>&1 || true
+        systemctl reset-failed sanalu.service >/dev/null 2>&1 || true
+    fi
+    rm -rf /var/lib/sanalu
+    rm -rf /etc/sanalu
+    if command -v nft >/dev/null 2>&1; then
+        nft delete table inet sanalu >/dev/null 2>&1 || true
+    fi
+fi
+
+exit 0

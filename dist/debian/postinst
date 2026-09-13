@@ -1,0 +1,16 @@
+#!/bin/sh
+set -e
+
+if [ "$1" = "configure" ]; then
+    if [ -d /run/systemd/system ]; then
+        systemctl --system daemon-reload >/dev/null 2>&1 || true
+        systemctl --system enable sanalu.service >/dev/null 2>&1 || true
+        if systemctl is-active --quiet sanalu.service; then
+            systemctl restart sanalu.service >/dev/null 2>&1 || true
+        else
+            systemctl start sanalu.service >/dev/null 2>&1 || true
+        fi
+    fi
+fi
+
+exit 0

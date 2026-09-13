@@ -99,3 +99,32 @@ fn test_dist_completions_file() {
     assert!(content.contains("sanalu,ban"));
     assert!(content.contains("sanalu,check"));
 }
+
+#[test]
+fn test_debian_maintainer_scripts() {
+    let postinst_path = Path::new("dist/debian/postinst");
+    let prerm_path = Path::new("dist/debian/prerm");
+    let postrm_path = Path::new("dist/debian/postrm");
+
+    assert!(postinst_path.exists());
+    assert!(prerm_path.exists());
+    assert!(postrm_path.exists());
+
+    let postinst = fs::read_to_string(postinst_path).unwrap();
+    assert!(postinst.contains("daemon-reload"));
+    assert!(postinst.contains("enable sanalu.service"));
+    assert!(postinst.contains("restart sanalu.service"));
+
+    let prerm = fs::read_to_string(prerm_path).unwrap();
+    assert!(prerm.contains("stop sanalu.service"));
+    assert!(prerm.contains("disable sanalu.service"));
+
+    let postrm = fs::read_to_string(postrm_path).unwrap();
+    assert!(postrm.contains("purge"));
+    assert!(postrm.contains("rm -rf /var/lib/sanalu"));
+    assert!(postrm.contains("rm -rf /etc/sanalu"));
+
+    let cargo_path = Path::new("Cargo.toml");
+    let cargo = fs::read_to_string(cargo_path).unwrap();
+    assert!(cargo.contains("maintainer-scripts = \"dist/debian\""));
+}
