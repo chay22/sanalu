@@ -11,6 +11,9 @@ use crate::parser::SshEvent;
 use std::collections::HashSet;
 use std::net::IpAddr;
 
+const TOOL_STRIKE_THRESHOLD: u8 = 10;
+const TOOL_STRIKE_WINDOW_SECS: u64 = 10;
+
 #[derive(Debug, PartialEq, Eq)]
 pub enum PipelineAction {
     Allow,
@@ -204,7 +207,12 @@ impl ThreatPipeline {
                         .duration_since(std::time::UNIX_EPOCH)
                         .unwrap_or_default()
                         .as_secs();
-                    match self.strike_tracker.record_tool_strike(ip, 10, 10, now) {
+                    match self.strike_tracker.record_tool_strike(
+                        ip,
+                        TOOL_STRIKE_THRESHOLD,
+                        TOOL_STRIKE_WINDOW_SECS,
+                        now,
+                    ) {
                         StrikeResult::ThresholdReached { .. } => PipelineAction::Ban {
                             reason: format!("tool_error_burst:{}", cat.as_str()),
                             permanent: false,
